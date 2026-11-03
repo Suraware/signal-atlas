@@ -1,0 +1,83 @@
+[
+  {
+    "source": "cisa",
+    "url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+    "status": 200,
+    "bytes": 1826755,
+    "content_type": "application/json",
+    "rate_remaining": null,
+    "preview": "{\n    \"title\": \"CISA Catalog of Known Exploited Vulnerabilities\",\n    \"catalogVersion\": \"2026.10.30\",\n    \"dateReleased\": \"2026-10-30T17:02:45.3665Z\",\n    \"count\": 1766,\n    \"vulne"
+  },
+  {
+    "source": "epss",
+    "url": "https://api.first.org/data/v1/epss?cve=CVE-2024-3094",
+    "status": 200,
+    "bytes": 202,
+    "content_type": "application/json; charset=utf-8",
+    "rate_remaining": null,
+    "preview": "{\"status\":\"OK\",\"status-code\":200,\"version\":\"1.0\",\"access\":\"public\",\"total\":1,\"offset\":0,\"limit\":100,\"data\":[{\"cve\":\"CVE-2024-3094\",\"epss\":\"0.909000000\",\"percentile\":\"0.998060000\",\""
+  },
+  {
+    "source": "cve",
+    "url": "https://cveawg.mitre.org/api/cve/CVE-2024-3094",
+    "status": 200,
+    "bytes": 10069,
+    "content_type": "application/json; charset=utf-8",
+    "rate_remaining": null,
+    "preview": "{\"dataType\":\"CVE_RECORD\",\"dataVersion\":\"5.2\",\"cveMetadata\":{\"cveId\":\"CVE-2024-3094\",\"assignerOrgId\":\"53f830b8-0a3f-465b-8143-3b8a9948e749\",\"state\":\"PUBLISHED\",\"assignerShortName\":\""
+  },
+  {
+    "source": "nvd",
+    "url": "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2024-3094",
+    "status": 200,
+    "bytes": 13076,
+    "content_type": "application/json",
+    "rate_remaining": null,
+    "preview": "{\"resultsPerPage\":1,\"startIndex\":0,\"totalResults\":1,\"format\":\"NVD_CVE\",\"version\":\"2.0\",\"timestamp\":\"2026-11-03T12:59:48.653\",\"vulnerabilities\":[{\"cve\":{\"id\":\"CVE-2024-3094\",\"source"
+  },
+  {
+    "source": "github",
+    "url": "https://api.github.com/advisories?per_page=3&sort=published&direction=desc",
+    "status": 200,
+    "bytes": 21065,
+    "content_type": "application/json; charset=utf-8",
+    "rate_remaining": "49",
+    "preview": "[{\"ghsa_id\":\"GHSA-j656-3hf2-fvjc\",\"cve_id\":null,\"url\":\"https://api.github.com/advisories/GHSA-j656-3hf2-fvjc\",\"html_url\":\"https://github.com/advisories/GHSA-j656-3hf2-fvjc\",\"summar"
+  },
+  {
+    "source": "osv",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-35jh-r3h4-6jhm",
+    "status": 200,
+    "bytes": 4178,
+    "content_type": "application/json",
+    "rate_remaining": null,
+    "preview": "{\"id\":\"GHSA-35jh-r3h4-6jhm\",\"summary\":\"Command Injection in lodash\",\"details\":\"`lodash` versions prior to 4.17.21 are vulnerable to Command Injection via the template function.\",\"a"
+  },
+  {
+    "source": "circl",
+    "url": "https://vulnerability.circl.lu/api/cve/CVE-2024-3094",
+    "status": 200,
+    "bytes": 10614,
+    "content_type": "application/json",
+    "rate_remaining": "18",
+    "preview": "{\"dataType\": \"CVE_RECORD\", \"dataVersion\": \"5.2\", \"cveMetadata\": {\"cveId\": \"CVE-2024-3094\", \"assignerOrgId\": \"53f830b8-0a3f-465b-8143-3b8a9948e749\", \"state\": \"PUBLISHED\", \"assignerS"
+  },
+  {
+    "source": "exploitdb",
+    "url": "https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv",
+    "status": 200,
+    "bytes": 10184639,
+    "content_type": "text/plain; charset=utf-8",
+    "rate_remaining": null,
+    "preview": "id,file,description,date_published,author,type,platform,port,date_added,date_updated,verified,codes,tags,aliases,screenshot_url,application_url,source_url\n16929,exploits/aix/dos/16"
+  },
+  {
+    "source": "exploitdb-mirror",
+    "url": "https://raw.githubusercontent.com/offensive-security/exploitdb/master/files_exploits.csv",
+    "status": 404,
+    "bytes": 14,
+    "content_type": "text/plain; charset=utf-8",
+    "rate_remaining": null,
+    "preview": "404: Not Found"
+  }
+]

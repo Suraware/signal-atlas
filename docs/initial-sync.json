@@ -1,0 +1,65 @@
+{
+  "sync": {
+    "running": false,
+    "started_at": "2026-11-03T13:07:31Z",
+    "finished_at": "2026-11-03T13:07:40Z",
+    "results": [
+      {
+        "id": "cisa",
+        "status": "ok",
+        "records": 1766
+      },
+      {
+        "id": "github",
+        "status": "ok",
+        "records": 60
+      },
+      {
+        "id": "nvd",
+        "status": "ok",
+        "records": 50
+      },
+      {
+        "id": "exploitdb",
+        "status": "ok",
+        "records": 200
+      },
+      {
+        "id": "epss",
+        "status": "ok",
+        "records": 99
+      },
+      {
+        "id": "cve",
+        "status": "ok",
+        "records": 1
+      },
+      {
+        "id": "circl",
+        "status": "ok",
+        "records": 1
+      },
+      {
+        "id": "osv",
+        "status": "ok",
+        "records": 1
+      }
+    ]
+  },
+  "stats": {
+    "total": 2052,
+    "known_exploited": 1766,
+    "watched": 0,
+    "last_updated": "2026-11-03T13:07:40Z",
+    "notes": 0,
+    "critical": 6,
+    "severity_counts": {
+      "CRITICAL": 6,
+      "HIGH": 54,
+      "LOW": 10,
+      "MEDIUM": 41,
+      "UNKNOWN": 1941
+    },
+    "sources_cached": 8
+  }
+}
