@@ -60,7 +60,7 @@ test('larger artifact analysis surfaces entropy map, embedded segments, and UTF-
   await page.getByLabel('File to inspect', { exact: true }).setInputFiles({ name: 'composite.bin', mimeType: 'application/octet-stream', buffer });
   await page.getByRole('button', { name: 'Inspect file', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Entropy map' })).toBeVisible();
-  await expect(page.getByRole('img', { name: /Entropy map/ })).toBeVisible();
+  await expect(page.getByRole('figure', { name: /Entropy map/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: /Embedded segments/ })).toBeVisible();
   await expect(page.getByText('ZIP archive', { exact: true })).toBeVisible();
   await expect(page.getByText('PDF document', { exact: true })).toBeVisible();
@@ -69,6 +69,23 @@ test('larger artifact analysis surfaces entropy map, embedded segments, and UTF-
   await page.getByText('UTF-16 strings found (1)').click();
   await expect(page.getByText('hidden-tunnel.example.net', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Whole file scanned')).toBeVisible();
+});
+
+test('a 512-bucket entropy map fits the report at desktop and mobile widths', async ({ page }, testInfo) => {
+  const buffer = Buffer.alloc(2 << 20);
+  buffer.write('https://large-map.example.org/tail\0', buffer.length - 100);
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/#/lab');
+    await page.getByLabel('File to inspect', { exact: true }).setInputFiles({ name: 'full-map.bin', mimeType: 'application/octet-stream', buffer });
+    await page.getByRole('button', { name: 'Inspect file', exact: true }).click();
+    await expect(page.getByText('No code executed', { exact: true })).toBeVisible();
+    await expect(page.locator('.entropy-bar')).toHaveCount(512);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `Page overflow at ${width}px`).toBe(true);
+    expect(await page.locator('.entropy-bars').evaluate(element => element.scrollWidth <= element.clientWidth), `Entropy bars overflow at ${width}px`).toBe(true);
+    await expect(page.getByRole('link', { name: 'https://large-map.example.org/tail', exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`full-entropy-map-${width}.png`), fullPage: true });
+  }
 });
 
 test('source limits are visible and export contains local evidence', async ({ page }) => {

@@ -1,5 +1,9 @@
 import os
 import struct
+import subprocess
+import sys
+from pathlib import Path
+from textwrap import dedent
 
 import pytest
 from atlas.analysis import analyze_file, parse_manifest
@@ -193,3 +197,103 @@ def test_heuristic_rules_cover_16mib_window_and_report_midfile_skips():
     result = analyze_file("wide.bin", padded)
     assert any("process manipulation" in signal["label"].lower() for signal in result["signals"])
     assert any("16 MiB" in warning for warning in result["warnings"])
+
+
+def test_oversized_domain_tokens_do_not_become_suffix_indicators_or_hide_a_valid_tail_domain():
+    data = ("A" * (1 << 20) + ".com\n" + "a." * 200 + "com\nhttps://late.example.org/path").encode()
+    result = analyze_file("long-tokens.txt", data)
+    assert result["indicators"]["domains"] == ["late.example.org"]
+
+
+def test_wide_indicators_are_not_limited_to_the_printable_string_preview():
+    prefix = ("ordinary printable text".encode("utf-16-le") + b"\x00\x00") * 201
+    late = ("A" * 260 + " https://wide-tail.example.net/report 203.0.113.10 2001:db8::2").encode("utf-16-le")
+    result = analyze_file("wide-preview.bin", prefix + late)
+    assert len(result["strings_utf16"]) == 200
+    assert result["indicators"]["urls"] == ["https://wide-tail.example.net/report"]
+    assert result["indicators"]["domains"] == ["wide-tail.example.net"]
+    assert result["indicators"]["ipv4"] == ["203.0.113.10"]
+    assert result["indicators"]["ipv6"] == ["2001:db8::2"]
+
+
+def test_heuristic_windows_are_byte_bounded_for_multibyte_utf8_input():
+    data = bytearray("é".encode() * (10 << 20))
+    middle = b"\neval(user_input)\n"
+    data[17 << 20:(17 << 20) + len(middle)] = middle
+    result = analyze_file("utf8-source.txt", bytes(data))
+    assert not any("Dynamic execution" in signal["label"] for signal in result["signals"])
+    assert any("middle regions were skipped" in warning for warning in result["warnings"])
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Linux address-space containment regression")
+def test_dense_64_mib_utf16_scan_stays_within_diagnostic_budget_and_keeps_tail_indicators():
+    code = dedent("""
+        import resource
+        from atlas.analysis import analyze_file
+
+        resource.setrlimit(resource.RLIMIT_AS, (768 << 20, 768 << 20))
+        tail = " https://wide-tail.example.net/report 203.0.113.10 2001:db8::2".encode("utf-16-le")
+        data = b"A\\x00" * (((64 << 20) - len(tail)) // 2) + tail
+        result = analyze_file("dense-wide.bin", data)
+        assert result["sampled_bytes"] == 67108864
+        assert result["strings_utf16"] == ["A" * 240]
+        assert result["indicators"]["urls"] == ["https://wide-tail.example.net/report"]
+        assert result["indicators"]["domains"] == ["wide-tail.example.net"]
+        assert result["indicators"]["ipv4"] == ["203.0.113.10"]
+        assert result["indicators"]["ipv6"] == ["2001:db8::2"]
+        assert result["execution"] == "never"
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=Path(__file__).resolve().parents[1] / "backend",
+        capture_output=True, text=True, timeout=45,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("prefix", [b"", b"\xff"])
+def test_wide_string_runs_and_crossing_indicators_remain_complete_at_either_byte_alignment(prefix):
+    first = "A" * 32762 + " https://crossing.example.net/path 203.0.113.11"
+    data = prefix + first.encode("utf-16-le") + b"\x00\x00" + "abcdef".encode("utf-16-le")
+    result = analyze_file("crossing-wide.bin", data)
+    assert result["strings_utf16"] == ["A" * 240, "abcdef"]
+    assert result["indicators"]["urls"] == ["https://crossing.example.net/path"]
+    assert result["indicators"]["ipv4"] == ["203.0.113.11"]
+
+
+@pytest.mark.parametrize("encoding", ["ascii", "utf-16-le"])
+def test_overlong_ipv6_scopes_are_rejected_as_complete_tokens_without_hiding_a_valid_tail(encoding):
+    text = "fe80::1%" + "A" * 10000 + " fe80::2%eth0"
+    result = analyze_file("scope.bin", text.encode(encoding))
+    assert result["indicators"]["ipv6"] == ["fe80::2%eth0"]
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("::1", ["::1"]),
+    ("2001:db8::", ["2001:db8::"]),
+    ("::ffff:192.0.2.1", (["::ffff:c000:201"], ["::ffff:192.0.2.1"])),
+    ("[2001:db8::1]:443", ["2001:db8::1"]),
+    ("2001:db8::1.", ["2001:db8::1"]),
+    ("2001:db8:0:0:0:0:0:1:2", []),
+    ("2001:db8::192.0.2.999", []),
+    ("g2001:db8::1", []),
+    ("2001:db8::1-invalid", []),
+    ("fe80::1%" + "s" * 64, ["fe80::1%" + "s" * 64]),
+    ("fe80::1%" + "s" * 65, []),
+    (":: ff02::1", []),
+])
+def test_ipv6_indicators_validate_complete_standard_candidates_without_inventing_fragments(text, expected):
+    result = analyze_file("ipv6.txt", text.encode())["indicators"]["ipv6"]
+    # Supported Python releases format IPv4-mapped addresses in either notation.
+    if isinstance(expected, tuple):
+        assert result in expected
+    else:
+        assert result == expected
+
+
+@pytest.mark.parametrize("prefix", [b"", b"\xff"])
+def test_short_utf16_indicators_do_not_depend_on_the_six_character_preview_minimum(prefix):
+    data = prefix + b"\x00\x00".join(value.encode("utf-16-le") for value in ["a.com", "a.io", "::1", "abcdef"])
+    result = analyze_file("short-wide.bin", data)
+    assert result["strings_utf16"] == ["abcdef"]
+    assert result["indicators"]["domains"] == ["a.com", "a.io"]
+    assert result["indicators"]["ipv6"] == ["::1"]

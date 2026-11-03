@@ -7,6 +7,7 @@ import math
 import re
 import struct
 from collections import Counter
+from itertools import islice
 from pathlib import PurePosixPath
 from urllib.parse import unquote
 
@@ -115,6 +116,8 @@ def parse_manifest(format, content):
 
 STRING_LIMIT = 200
 INDICATOR_LIMIT = 100
+IPV6_SCOPE_LIMIT = 64
+IPV6_CANDIDATE_LIMIT = 45 + 1 + IPV6_SCOPE_LIMIT
 SIGNAL_LIMIT = 100
 SIGNAL_WINDOW = 16 * 1024 * 1024
 SIGNAL_WINDOW_TAIL = 1 * 1024 * 1024
@@ -125,12 +128,18 @@ ENTROPY_HIGH = 7.5
 MAX_HIGH_REGIONS = 20
 
 DOMAIN = re.compile(
-    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
-    r"(?:com|net|org|io|dev|gov|edu|mil|int|info|biz|app|me|us|ca|jp|kr|in|ru|cn|de|uk|fr|nl|eu|xyz|top|site|online|store|cc|co|ai)\b",
+    r"(?<![a-z0-9.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.){1,125}"
+    r"(?:com|net|org|io|dev|gov|edu|mil|int|info|biz|app|me|us|ca|jp|kr|in|ru|cn|de|uk|fr|nl|eu|xyz|top|site|online|store|cc|co|ai)\b"
+    r"(?![a-z0-9-]|\.[a-z0-9.-])",
     re.IGNORECASE,
 )
-IPV6 = re.compile(r"\b(?:[A-Fa-f0-9]{0,4}:){1,7}[A-Fa-f0-9]{0,4}(?:::[A-Fa-f0-9:]{0,20})?(?:%[0-9a-zA-Z]+)?\b")
+URL = re.compile(r"https?://[^\s<>\"'\x00-\x20]+")
+IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+# Match whole tokens, then validate. Partial matches can invent an address from
+# an invalid ninth group; quantifier-only limits can truncate an oversized scope.
+IPV6 = re.compile(r"(?<![\w.:%~-])[A-Fa-f0-9]*:[A-Fa-f0-9:.]*(?:%[0-9A-Za-z_.~-]+)?(?![\w.:%~-])")
 BASE64_RUN = re.compile(r"(?:[A-Za-z0-9+/]{" + str(BASE64_MIN) + r",})={0,2}")
+UTF16_PRINTABLE = re.compile(rb"(?:[\x20-\x7e]\x00){3,}")
 
 SEGMENT_MAGICS = (
     (b"PK\x03\x04", "ZIP archive"),
@@ -147,6 +156,63 @@ SEGMENT_MAGICS = (
     (b"\xfe\xed\xfa\xce", "Mach-O object"),
     (b"taR\x00", "tar-like archive marker"),
 )
+
+
+def _scan_indicators(text, indicators):
+    # Bound retained results, not scan coverage or the number of invalid candidates.
+    for kind, pattern in (("urls", URL), ("ipv4", IPV4), ("ipv6", IPV6), ("domains", DOMAIN)):
+        values = indicators[kind]
+        if len(values) >= INDICATOR_LIMIT:
+            continue
+        seen = set(values)
+        for match in pattern.finditer(text):
+            if kind == "urls" and match.end() - match.start() > 2048:
+                continue
+            if kind == "domains" and match.end() - match.start() > 253:
+                continue
+            if kind == "ipv6" and match.end() - match.start() > IPV6_CANDIDATE_LIMIT:
+                continue
+            value = match.group()
+            if kind == "urls":
+                value = value.rstrip(".,;)\"'")
+                if not safe_url(value):
+                    continue
+            elif kind in ("ipv4", "ipv6"):
+                if kind == "ipv6":
+                    if "%" not in value:
+                        value = value.rstrip(".")  # A sentence-ending period is not part of an IPv6 address.
+                    address_text, _, scope = value.partition("%")
+                    if len(address_text) > 45 or len(scope) > IPV6_SCOPE_LIMIT or address_text.count(":") < 2:
+                        continue
+                try:
+                    address = ipaddress.IPv4Address(value) if kind == "ipv4" else ipaddress.IPv6Address(value)
+                except ipaddress.AddressValueError:
+                    continue
+                if kind == "ipv6" and (address.is_multicast or str(address) == "::"):
+                    continue
+                value = str(address)
+            if value not in seen:
+                seen.add(value)
+                values.append(value)
+                if len(values) >= INDICATOR_LIMIT:
+                    break
+
+
+def _utf16_runs(data):
+    # Repeated regex groups retain state per character. Bound each match window,
+    # overlap by more than six code units, and merge spans without copying runs.
+    active = None
+    for offset in range(0, len(data), 64 * 1024):
+        start, end = max(0, offset - 16), min(len(data), offset + 64 * 1024)
+        for match in UTF16_PRINTABLE.finditer(data, start, end):
+            if active and match.start() <= active[1]:
+                active[1] = max(active[1], match.end())
+            else:
+                if active:
+                    yield active
+                active = [match.start(), match.end()]
+    if active:
+        yield active
 
 
 def _entropy_map(data):
@@ -358,28 +424,16 @@ def analyze_file(filename, data):
     entropy_map = _entropy_map(data)
     segments = _segments(data)
     sample = data
-    strings = [match.group()[:240].decode("ascii") for match in re.finditer(rb"[\x20-\x7e]{6,}", sample)][:STRING_LIMIT]
-    utf16 = [match.group()[:480].replace(b"\x00", b"").decode("ascii") for match in re.finditer(rb"(?:[\x20-\x7e]\x00){6,}", sample)][:STRING_LIMIT]
+    strings = [sample[match.start():min(match.end(), match.start() + 240)].decode("ascii") for match in islice(re.finditer(rb"[\x20-\x7e]{6,}", sample), STRING_LIMIT)]
     text = sample.decode("utf-8", errors="replace")
-    extraction = "\n".join([text, *(value for value in utf16)])
-    urls = unique(url.rstrip(".,;)\"'") for url in re.findall(r"https?://[^\s<>\"'\x00-\x20]+", extraction))
-    urls = [url for url in urls if safe_url(url)][:INDICATOR_LIMIT]
-    ips, ipv6 = [], []
-    for value in unique(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", extraction))[:INDICATOR_LIMIT]:
-        try:
-            ips.append(str(ipaddress.IPv4Address(value)))
-        except ipaddress.AddressValueError:
-            continue
-    for value in unique(IPV6.findall(extraction))[:INDICATOR_LIMIT]:
-        try:
-            packed = ipaddress.IPv6Address(value)
-        except ipaddress.AddressValueError:
-            continue
-        if packed.is_multicast or str(packed).lower() == "::":
-            continue
-        ipv6.append(str(packed))
-    domains = unique(DOMAIN.findall(extraction))[:INDICATOR_LIMIT]
-    base64_runs = [match.group() for match in BASE64_RUN.finditer(text)][:INDICATOR_LIMIT]
+    indicators = {kind: [] for kind in ("urls", "ipv4", "ipv6", "domains")}
+    _scan_indicators(text, indicators)
+    utf16 = []
+    for start, end in _utf16_runs(sample):
+        if end - start >= 12 and len(utf16) < STRING_LIMIT:
+            utf16.append(sample[start:min(end, start + 480):2].decode("ascii"))
+        _scan_indicators(sample[start:end:2].decode("ascii"), indicators)
+    base64_match = BASE64_RUN.search(text)
     rules = [
         (r"powershell|/bin/(?:ba)?sh|cmd\.exe", "Shell / command interpreter reference", "May be legitimate; inspect the calling context."),
         (r"CreateRemoteThread|VirtualAllocEx|WriteProcessMemory", "Process manipulation API reference", "Static API strings are not proof that the function is executed."),
@@ -388,25 +442,25 @@ def analyze_file(filename, data):
         (r"verify\s*=\s*False|rejectUnauthorized\s*:\s*false", "TLS verification disabled candidate", "Review whether certificate verification is disabled for external requests."),
     ]
     signals = []
-    window_start = min(len(text), SIGNAL_WINDOW)
-    window_end = max(window_start, min(len(text), len(text) - SIGNAL_WINDOW_TAIL))
+    window_start = min(len(data), SIGNAL_WINDOW)
+    window_end = max(window_start, min(len(data), len(data) - SIGNAL_WINDOW_TAIL))
     windows = [(0, window_start)]
-    if window_end < len(text):
-        windows.append((window_end, len(text)))
-    skipped_bytes = len(text) - sum(end - start for start, end in windows)
+    if window_end < len(data):
+        windows.append((window_end, len(data)))
+    skipped_bytes = len(data) - sum(end - start for start, end in windows)
     for start, end in windows:
-        window = text[start:end]
+        window = data[start:end].decode("utf-8", errors="replace")
         for pattern, label, reason in rules:
             match = re.search(pattern, window, re.IGNORECASE)
             if match:
-                signals.append({"label": label, "reason": reason, "line": text[:start].count("\n") + window[:match.start()].count("\n") + 1, "match": match.group()[:100]})
+                signals.append({"label": label, "reason": reason, "line": data.count(b"\n", 0, start) + window[:match.start()].count("\n") + 1, "match": match.group()[:100]})
     warnings = ["Static indicators are leads, not a verdict. No code was executed and no file was sent to an external service."]
     if entropy > ENTROPY_HIGH:
         warnings.append("High entropy may indicate encryption, compression, or packing; it does not prove malicious behavior.")
     if segments:
         warnings.append(f"{len(segments)} embedded segments were located; they were not extracted or inspected.")
-    if base64_runs:
-        warnings.append(f"A base64-like run of {base64_runs[0][:8]}… extends past 32 characters; encoded blobs are not decoded or interpreted.")
+    if base64_match:
+        warnings.append(f"A base64-like run of {text[base64_match.start():base64_match.start() + 8]}… contains at least 32 characters; encoded blobs are not decoded or interpreted.")
     if skipped_bytes:
         warnings.append("Heuristic rules cover the first 16 MiB and the final 1 MiB; middle regions were skipped.")
     result = {
@@ -414,7 +468,7 @@ def analyze_file(filename, data):
         "entropyMap": entropy_map, "segments": segments,
         "sha256": hashlib.sha256(data).hexdigest(), "sha1": hashlib.sha1(data, usedforsecurity=False).hexdigest(),
         "md5": hashlib.md5(data, usedforsecurity=False).hexdigest(), "strings": strings, "strings_utf16": utf16,
-        "sampled_bytes": len(sample), "indicators": {"urls": urls, "ipv4": unique(ips)[:INDICATOR_LIMIT], "ipv6": ipv6, "domains": domains},
+        "sampled_bytes": len(sample), "indicators": indicators,
         "signals": signals[:SIGNAL_LIMIT], "warnings": warnings, "execution": "never",
     }
     if classic_pcap or pcapng:

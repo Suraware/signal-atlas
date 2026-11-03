@@ -88,7 +88,7 @@ function EntropyMap({ entropyMap }: { entropyMap: { block: number; count: number
   const regions = entropyMap.highRegions;
   const buckets = entropyMap.count === 1 ? '1 block of' : `${entropyMap.count} blocks of`;
   const label = `Entropy map, ${buckets} ${entropyMap.block} bytes each. ${regions.length ? `${regions.length} high-entropy region${regions.length === 1 ? ', bytes' : 's, byte ranges'} ${regions.map(region => `${region.start} to ${region.end}`).join(', ')}.` : 'No high-entropy regions.'}`;
-  return <section><h3>Entropy map</h3><figure className="entropy-map" role="img" aria-label={label}><figcaption>Entropy map · {buckets} {entropyMap.block} bytes · {regions.length} high-entropy region{regions.length === 1 ? '' : 's'}</figcaption><div className="entropy-bars" aria-hidden="true">{entropyMap.values.map((value, index) => <span key={index} className={value > 7.5 ? 'entropy-bar high' : 'entropy-bar'} style={{ height: `${Math.max(2, Math.round(value / 8 * 100))}%` }} />)}</div></figure></section>;
+  return <section><h3>Entropy map</h3><figure className="entropy-map" aria-label={label}><figcaption>Entropy map · {buckets} {entropyMap.block} bytes · {regions.length} high-entropy region{regions.length === 1 ? '' : 's'}</figcaption><div className="entropy-bars" aria-hidden="true">{entropyMap.values.map((value, index) => <span key={index} className={value > 7.5 ? 'entropy-bar high' : 'entropy-bar'} style={{ height: `${Math.max(2, Math.round(value / 8 * 100))}%` }} />)}</div></figure></section>;
 }
 
 function groupIndicators(analysis: Analysis): { name: string; values: string[]; linked: boolean }[] {
