@@ -2,6 +2,20 @@
 
 Verified on **2026-11-03**. These results apply to this session's source snapshot, not to every future change or deployment. The application remains an early, repository-run release for one researcher or a trusted LAN.
 
+## Larger artifact analysis upgrade (same date)
+
+The Analysis lab was extended and re-verified with tests written first (each observed failing, then passing):
+
+| Gate | Command | Observed result |
+| --- | --- | --- |
+| Backend behavior | `.venv/bin/python -m pytest tests -q` | 50 tests passed (6 new analysis behaviors + upload-cap pins) |
+| Python static checks | `.venv/bin/ruff check backend tests scripts` | All checks passed |
+| Production interface | `npm --prefix frontend run build` | TypeScript and Vite build passed |
+| Browser acceptance | `npx playwright test` | 19 isolated Firefox tests passed (new larger-artifact flow) |
+
+New verified behaviors: files up to **64 MiB** (request-body ceiling 66 MiB), whole-file strings and indicators (ASCII + UTF-16LE), block entropy map with ≤512 buckets and marked high-entropy regions, up to 100 embedded file signatures located and never extracted, IPv6/domain/base64-run indicator families, and heuristic rules covering the first 16 MiB plus the final 1 MiB with a warning when middle bytes are skipped.
+
+
 ## Build and test results
 
 The original workspace and a fresh source-only copy passed these gates:
@@ -25,7 +39,7 @@ Test environment: Linux, Python **3.12.13**, Node.js **22.23.2**, uv **0.12.0**,
 - Warn before replacing an unsaved draft through internal navigation, a new note, or browser history. Reject stale LAN revisions without overwriting the newer note or erasing the local draft.
 - Delete and restore saved notes. Display imported notes and untrusted strings as plain text.
 - Parse exact npm, Python, and CycloneDX package versions. Without network consent, show cached evidence or **Not checked**, not a clean result.
-- Inspect artifact headers, hashes, strings, and bounded PCAP/PCAPNG summaries without executing input or starting a capture.
+- Inspect artifact headers, hashes, whole-file strings and indicators, the entropy map, located embedded file signatures, and bounded PCAP/PCAPNG summaries without executing input or starting a capture.
 - Reject unknown sources, malformed identifiers, oversized bodies, and foreign browser hosts/origins at the local API boundary.
 
 Backend and browser suites use controlled external-response fixtures and isolated data. Fixture exploitation flags and OSV matches are **not live intelligence**.

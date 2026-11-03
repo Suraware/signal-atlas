@@ -1,3 +1,4 @@
+import os
 import struct
 
 import pytest
@@ -112,3 +113,83 @@ def test_source_code_signals_are_findings_not_malware_verdicts():
     result = analyze_file("script.py", b"import pickle\nvalue = pickle.loads(user_input)\n")
     assert any("deserial" in signal["label"].lower() for signal in result["signals"])
     assert any("not a verdict" in warning.lower() for warning in result["warnings"])
+
+
+def test_oversized_files_hit_the_64_mib_limit_with_the_new_message():
+    from atlas.analysis import MAX_FILE
+
+    with pytest.raises(ValueError) as limit:
+        analyze_file("large.bin", b"\x00" * (MAX_FILE + 1))
+    assert "64 MiB" in str(limit.value)
+
+
+def test_whole_file_strings_and_indicators_cover_beyond_the_first_mib():
+    trailing = b"<TAIL-AFTER-1MIB> https://late.example.net/payload 203.0.113.7\x00"
+    utf16_url = "https://whole-file.example.com/region".encode("utf-16-le")
+    utf16_ip = "203.0.113.9".encode("utf-16-le")
+    data = b"\x00" * (1 << 20) + trailing + b"\x00\x00" + utf16_url + b"\x00\x00" + utf16_ip + b"\x00"
+    result = analyze_file("large.bin", data)
+    assert len(data) > (1 << 20)
+    assert any("TAIL-AFTER-1MIB" in value for value in result["strings"])
+    assert any("https://late.example.net/payload" in value for value in result["strings"])
+    assert result["strings_utf16"] == ["https://whole-file.example.com/region", "203.0.113.9"]
+    assert result["indicators"]["urls"] == ["https://late.example.net/payload", "https://whole-file.example.com/region"]
+    assert result["indicators"]["ipv4"] == ["203.0.113.7", "203.0.113.9"]
+    assert result["sampled_bytes"] == len(data)
+    assert not any("1 MiB" in warning for warning in result["warnings"])
+
+
+def test_entropy_map_reports_blocks_and_high_regions(tmp_path):
+    block = 4096
+    small = b"A" * block + os.urandom(block)
+    result = analyze_file("blob.bin", small)["entropyMap"]
+    assert result["block"] == block
+    assert result["count"] == 2
+    assert result["values"][0] < 0.5
+    assert result["values"][-1] > 7.5
+    assert result["highRegions"] == [{"start": block, "end": 2 * block, "blockCount": 1}]
+
+    many = b"A" * (block * 513) + os.urandom(block + 128)
+    grouped = analyze_file("blob.bin", many)["entropyMap"]
+    assert grouped["block"] > block
+    assert grouped["count"] <= 512
+    assert len(grouped["values"]) == grouped["count"]
+
+
+def test_embedded_segments_are_located_never_extracted_or_inspected(tmp_path):
+    pdf = b"%PDF-1.7 body\n%%EOF\n"
+    ole = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 24
+    zip_header = b"PK\x03\x04" + b"\x00" * 24
+    payload = pdf + b"\x00" * (0x200 - len(pdf)) + ole + b"\x00" * (0x401 - 0x200 - len(ole)) + zip_header + b"\x00" * 200
+    result = analyze_file("composite.bin", payload)
+    assert result["segments"] == [
+        {"type": "PDF document", "offset": 0},
+        {"type": "OLE compound document", "offset": 0x200},
+        {"type": "ZIP archive", "offset": 0x401},
+    ]
+    assert any("extracted" in warning.lower() for warning in result["warnings"])
+
+
+def test_indicators_cover_ipv6_domains_and_base64_blobs():
+    blob = b"A" * 64
+    data = (
+        b"goto https://ascii.example.org/path and 2001:db8:85a3::8a2e:370:7334 ok\n"
+        + blob + b"\n"
+        + "203.0.113.9".encode("utf-16-le") + b"\x00"
+    )
+    result = analyze_file("mixed.bin", data)
+    assert result["indicators"]["ipv6"] == ["2001:db8:85a3::8a2e:370:7334"]
+    assert result["indicators"]["domains"] == ["ascii.example.org"]
+    assert "203.0.113.9" in result["indicators"]["ipv4"]
+    assert any("base64" in warning.lower() for warning in result["warnings"])
+
+
+def test_heuristic_rules_cover_16mib_window_and_report_midfile_skips():
+    padded = (
+        b"\x00" * (18 << 20)  # middle region deliberately uncovered by heuristic scanning
+        + b"CreateRemoteThread used here near the end\n"
+        + b"\x00" * 4096
+    )
+    result = analyze_file("wide.bin", padded)
+    assert any("process manipulation" in signal["label"].lower() for signal in result["signals"])
+    assert any("16 MiB" in warning for warning in result["warnings"])

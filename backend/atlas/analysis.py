@@ -12,10 +12,11 @@ from urllib.parse import unquote
 
 from .models import safe_url, unique
 
-MAX_FILE = 8 * 1024 * 1024
+MAX_FILE = 64 * 1024 * 1024
 MAX_MANIFEST = 200000
 MAX_PACKAGES = 100
-MAX_PACKETS = 10000
+ENTROPY_BLOCK = 4 * 1024
+MAX_PACKETS = 20000
 EXACT_VERSION = re.compile(r"^[0-9][0-9A-Za-z.!+_-]{0,100}$")
 
 
@@ -110,6 +111,85 @@ def parse_manifest(format, content):
     if not packages and not skipped:
         raise ValueError("No dependencies were found. Provide exact package versions.")
     return {"format": format, "packages": packages, "skipped": skipped[:100], "warnings": unique(warnings)}
+
+
+STRING_LIMIT = 200
+INDICATOR_LIMIT = 100
+SIGNAL_LIMIT = 100
+SIGNAL_WINDOW = 16 * 1024 * 1024
+SIGNAL_WINDOW_TAIL = 1 * 1024 * 1024
+SEGMENT_STRIDE = 512
+MAX_SEGMENTS = 100
+BASE64_MIN = 32
+ENTROPY_HIGH = 7.5
+MAX_HIGH_REGIONS = 20
+
+DOMAIN = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"(?:com|net|org|io|dev|gov|edu|mil|int|info|biz|app|me|us|ca|jp|kr|in|ru|cn|de|uk|fr|nl|eu|xyz|top|site|online|store|cc|co|ai)\b",
+    re.IGNORECASE,
+)
+IPV6 = re.compile(r"\b(?:[A-Fa-f0-9]{0,4}:){1,7}[A-Fa-f0-9]{0,4}(?:::[A-Fa-f0-9:]{0,20})?(?:%[0-9a-zA-Z]+)?\b")
+BASE64_RUN = re.compile(r"(?:[A-Za-z0-9+/]{" + str(BASE64_MIN) + r",})={0,2}")
+
+SEGMENT_MAGICS = (
+    (b"PK\x03\x04", "ZIP archive"),
+    (b"\x37\x7a\xbc\xaf\x27\x1c", "7z archive"),
+    (b"Rar!\x1a\x07", "RAR archive"),
+    (b"\x1f\x8b", "GZIP stream"),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", "OLE compound document"),
+    (b"MZ", "PE/DOS module"),
+    (b"\x7fELF", "ELF object"),
+    (b"%PDF", "PDF document"),
+    (b"%!PS", "PostScript"),
+    (b"SQLite format 3\x00", "SQLite database"),
+    (b"\xca\xfe\xba\xbe", "Mach-O universal binary"),
+    (b"\xfe\xed\xfa\xce", "Mach-O object"),
+    (b"taR\x00", "tar-like archive marker"),
+)
+
+
+def _entropy_map(data):
+    size = len(data)
+    groups = math.ceil(size / ENTROPY_BLOCK)
+    span = max(ENTROPY_BLOCK, math.ceil(groups / 512) * ENTROPY_BLOCK)
+    values = []
+    spans, active = [], None
+    for index, start in enumerate(range(0, size, span)):
+        written = data[start:start + span]
+        coverage = len(written)
+        counts = Counter(written)
+        value = round(-sum((count / coverage) * math.log2(count / coverage) for count in counts.values()), 3)
+        values.append(value)
+        block_start = start
+        block_end = min(start + span, size)
+        if value > ENTROPY_HIGH:
+            if active is None:
+                active = [block_start, block_end]
+            else:
+                active[1] = block_end
+        elif active:
+            block_count = math.ceil((active[1] - active[0]) / span)
+            spans.append({"start": active[0], "end": active[1], "blockCount": block_count})
+            active = None
+    if active:
+        spans.append({"start": active[0], "end": active[1], "blockCount": math.ceil((active[1] - active[0]) / span)})
+    return {"block": span, "count": len(values), "values": values, "highRegions": spans[:MAX_HIGH_REGIONS]}
+
+
+def _segments(data):
+    found = []
+    for magic, label in SEGMENT_MAGICS:
+        start = 0
+        while len(found) < MAX_SEGMENTS:
+            start = data.find(magic, start)
+            if start < 0:
+                break
+            found.append({"type": label, "offset": start})
+            start = max(1, start + SEGMENT_STRIDE)
+        if len(found) >= MAX_SEGMENTS:
+            break
+    return sorted(found, key=lambda item: item["offset"])[:MAX_SEGMENTS]
 
 
 def _packet(packet, link_type):
@@ -238,7 +318,7 @@ def _capture(data, pcapng=False):
             warnings.append("The final packet header is truncated.")
             truncated = True
     if packets == MAX_PACKETS:
-        warnings.append("Only the first 10,000 packets were decoded.")
+        warnings.append(f"Only the first {MAX_PACKETS:,} packets were decoded.")
     if protocols.get("Other/undecoded"):
         warnings.append("Some frames use unsupported link types, IPv6 extension headers, or non-IP protocols.")
     return {
@@ -253,7 +333,7 @@ def analyze_file(filename, data):
     if not data:
         raise ValueError("Choose a non-empty file.")
     if len(data) > MAX_FILE:
-        raise ValueError("Files must be at most 8 MiB.")
+        raise ValueError(f"Files must be at most {MAX_FILE >> 20} MiB.")
     filename = PurePosixPath(str(filename).replace("\\", "/")).name[:200] or "artifact"
     magic = data[:4]
     classic_pcap = magic in {b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4", b"\x4d\x3c\xb2\xa1", b"\xa1\xb2\x3c\x4d"}
@@ -275,17 +355,31 @@ def analyze_file(filename, data):
         file_type = "Text / source code"
     counts = Counter(data)
     entropy = -sum((count / len(data)) * math.log2(count / len(data)) for count in counts.values())
-    sample = data[:1024 * 1024]
-    strings = [match.group()[:240].decode("ascii") for match in re.finditer(rb"[\x20-\x7e]{6,}", sample)][:200]
+    entropy_map = _entropy_map(data)
+    segments = _segments(data)
+    sample = data
+    strings = [match.group()[:240].decode("ascii") for match in re.finditer(rb"[\x20-\x7e]{6,}", sample)][:STRING_LIMIT]
+    utf16 = [match.group()[:480].replace(b"\x00", b"").decode("ascii") for match in re.finditer(rb"(?:[\x20-\x7e]\x00){6,}", sample)][:STRING_LIMIT]
     text = sample.decode("utf-8", errors="replace")
-    urls = unique(url.rstrip(".,;)\"'") for url in re.findall(r"https?://[^\s<>\"'\x00-\x20]+", text))
-    urls = [url for url in urls if safe_url(url)][:100]
-    ips = []
-    for value in unique(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", text))[:1000]:
+    extraction = "\n".join([text, *(value for value in utf16)])
+    urls = unique(url.rstrip(".,;)\"'") for url in re.findall(r"https?://[^\s<>\"'\x00-\x20]+", extraction))
+    urls = [url for url in urls if safe_url(url)][:INDICATOR_LIMIT]
+    ips, ipv6 = [], []
+    for value in unique(re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", extraction))[:INDICATOR_LIMIT]:
         try:
             ips.append(str(ipaddress.IPv4Address(value)))
         except ipaddress.AddressValueError:
             continue
+    for value in unique(IPV6.findall(extraction))[:INDICATOR_LIMIT]:
+        try:
+            packed = ipaddress.IPv6Address(value)
+        except ipaddress.AddressValueError:
+            continue
+        if packed.is_multicast or str(packed).lower() == "::":
+            continue
+        ipv6.append(str(packed))
+    domains = unique(DOMAIN.findall(extraction))[:INDICATOR_LIMIT]
+    base64_runs = [match.group() for match in BASE64_RUN.finditer(text)][:INDICATOR_LIMIT]
     rules = [
         (r"powershell|/bin/(?:ba)?sh|cmd\.exe", "Shell / command interpreter reference", "May be legitimate; inspect the calling context."),
         (r"CreateRemoteThread|VirtualAllocEx|WriteProcessMemory", "Process manipulation API reference", "Static API strings are not proof that the function is executed."),
@@ -294,20 +388,34 @@ def analyze_file(filename, data):
         (r"verify\s*=\s*False|rejectUnauthorized\s*:\s*false", "TLS verification disabled candidate", "Review whether certificate verification is disabled for external requests."),
     ]
     signals = []
-    for pattern, label, reason in rules:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            signals.append({"label": label, "reason": reason, "line": text[:match.start()].count("\n") + 1, "match": match.group()[:100]})
+    window_start = min(len(text), SIGNAL_WINDOW)
+    window_end = max(window_start, min(len(text), len(text) - SIGNAL_WINDOW_TAIL))
+    windows = [(0, window_start)]
+    if window_end < len(text):
+        windows.append((window_end, len(text)))
+    skipped_bytes = len(text) - sum(end - start for start, end in windows)
+    for start, end in windows:
+        window = text[start:end]
+        for pattern, label, reason in rules:
+            match = re.search(pattern, window, re.IGNORECASE)
+            if match:
+                signals.append({"label": label, "reason": reason, "line": text[:start].count("\n") + window[:match.start()].count("\n") + 1, "match": match.group()[:100]})
     warnings = ["Static indicators are leads, not a verdict. No code was executed and no file was sent to an external service."]
-    if len(data) > len(sample):
-        warnings.append("Strings and heuristic rules inspect only the first 1 MiB; hashes and entropy cover the full file.")
-    if entropy > 7.5:
+    if entropy > ENTROPY_HIGH:
         warnings.append("High entropy may indicate encryption, compression, or packing; it does not prove malicious behavior.")
+    if segments:
+        warnings.append(f"{len(segments)} embedded segments were located; they were not extracted or inspected.")
+    if base64_runs:
+        warnings.append(f"A base64-like run of {base64_runs[0][:8]}… extends past 32 characters; encoded blobs are not decoded or interpreted.")
+    if skipped_bytes:
+        warnings.append("Heuristic rules cover the first 16 MiB and the final 1 MiB; middle regions were skipped.")
     result = {
         "filename": filename, "size": len(data), "file_type": file_type, "entropy": round(entropy, 3),
+        "entropyMap": entropy_map, "segments": segments,
         "sha256": hashlib.sha256(data).hexdigest(), "sha1": hashlib.sha1(data, usedforsecurity=False).hexdigest(),
-        "md5": hashlib.md5(data, usedforsecurity=False).hexdigest(), "strings": strings, "sampled_bytes": len(sample),
-        "indicators": {"urls": urls, "ipv4": unique(ips)[:100]}, "signals": signals, "warnings": warnings, "execution": "never",
+        "md5": hashlib.md5(data, usedforsecurity=False).hexdigest(), "strings": strings, "strings_utf16": utf16,
+        "sampled_bytes": len(sample), "indicators": {"urls": urls, "ipv4": unique(ips)[:INDICATOR_LIMIT], "ipv6": ipv6, "domains": domains},
+        "signals": signals[:SIGNAL_LIMIT], "warnings": warnings, "execution": "never",
     }
     if classic_pcap or pcapng:
         result["capture"] = _capture(data, pcapng)

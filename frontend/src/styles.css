@@ -341,7 +341,7 @@ input::file-selector-button { border: 1px solid var(--control-border); border-ra
 .warning-list li + li { margin-top: 6px; }
 .report-details { padding: 6px 20px; }
 .report-details ul { font-size: 13px; color: var(--muted); line-height: 1.7; }
-.artifact-metrics { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 24px; padding: 20px; }
+.artifact-metrics { display: grid; grid-template-columns: 2fr 1fr 1fr 1.4fr; gap: 24px; padding: 20px; }
 .artifact-metrics dt { font-size: 12px; color: var(--muted); margin-bottom: 7px; }
 .artifact-metrics dd { font-size: 15px; font-weight: 550; }
 .hashes { display: flex; flex-direction: column; gap: 12px; }
@@ -354,6 +354,16 @@ input::file-selector-button { border: 1px solid var(--control-border); border-ra
 .signal-list strong { font-size: 14px; }
 .signal-list span { display: block; font-size: 12px; color: var(--muted); margin: 6px 0; }
 .signal-list p { font-size: 13px; margin: 0; }
+.entropy-map { margin: 0 20px 18px; padding: 14px 16px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: #f8fafc; }
+.entropy-map figcaption { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.entropy-bars { display: flex; align-items: flex-end; gap: 2px; height: 72px; }
+.entropy-bar { flex: 1 0 auto; width: 6px; min-height: 4px; background: #3f5f80; border-radius: 2px 2px 0 0; }
+.entropy-bar.high { background: #a04b0e; }
+.segment-list { list-style: none; padding: 0; margin: 0 0 24px; }
+.segment-list li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+.segment-list span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.indicator-group { margin-bottom: 14px; }
+.indicator-group h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin: 0 0 6px; }
 .capture-report { padding-top: 20px; border-top: 1px solid var(--border); margin: 24px 0; }
 .capture-report > p { font-size: 14px; }
 .capture-report .source-tags { margin-bottom: 16px; }

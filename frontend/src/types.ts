@@ -41,7 +41,11 @@ export interface AuditResult {
 }
 export interface Analysis {
   filename: string; size: number; file_type: string; entropy: number; sha256: string; sha1: string; md5: string;
-  strings: string[]; indicators: { urls: string[]; ipv4: string[] }; warnings: string[];
+  strings: string[]; strings_utf16: string[]; sampled_bytes: number;
+  indicators: { urls: string[]; ipv4: string[]; ipv6: string[]; domains: string[] };
+  warnings: string[];
   signals: { label: string; reason: string; line: number; match: string }[];
+  segments: { type: string; offset: number }[];
+  entropyMap: { block: number; count: number; values: number[]; highRegions: { start: number; end: number; blockCount: number }[] };
   capture?: { format: string; packet_count: number; captured_bytes: number; truncated: boolean; link_type?: number; warnings: string[]; protocols: { name: string; count: number }[]; conversations: { source: string; destination: string; protocol: string; packets: number; bytes: number }[] };
 }

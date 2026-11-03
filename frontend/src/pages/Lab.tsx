@@ -27,7 +27,7 @@ export function LabPage() {
     if (!file) return;
     setInspecting(true); setFileError(''); setAnalysis(null);
     try {
-      if (file.size > 8 * 1024 * 1024) throw new Error('This file exceeds 8 MiB. Choose a smaller artifact or capture.');
+      if (file.size > 64 * 1024 * 1024) throw new Error('This file exceeds 64 MiB. Choose a smaller artifact or capture.');
       const body = new FormData(); body.append('file', file);
       setAnalysis(await request<Analysis>('/analyze', { method: 'POST', body }));
     } catch (error) { setFileError(error instanceof Error ? error.message : 'The file could not be inspected.'); }
@@ -49,8 +49,8 @@ export function LabPage() {
       <Panel title="Artifact inspection" extra={<FileSearch size={20} aria-hidden="true" />}>
         <form className="panel-body" onSubmit={event => { event.preventDefault(); void inspectFile(); }}>
           <p>Inspect binary headers, hashes, printable strings, and source-code signals. PCAP and PCAPNG files also produce packet and conversation summaries.</p>
-          <div className="field file-field"><label htmlFor="artifact-file">File to inspect</label><input id="artifact-file" type="file" onChange={event => setFile(event.target.files?.[0] || null)} aria-describedby="artifact-hint" /><p id="artifact-hint" className="field-hint">Up to 8 MiB. No execution, decompression, decryption, or external reputation lookup.</p></div>
-          <ul className="inspection-boundaries"><li>Hashes and entropy cover the full file.</li><li>Strings and heuristic rules read the first 1 MiB.</li><li>Capture decoding stops at 10,000 packets.</li><li>Indicators are research leads, not a malware verdict.</li></ul>
+          <div className="field file-field"><label htmlFor="artifact-file">File to inspect</label><input id="artifact-file" type="file" onChange={event => setFile(event.target.files?.[0] || null)} aria-describedby="artifact-hint" /><p id="artifact-hint" className="field-hint">Up to 64 MiB. No execution, decompression, decryption, or external reputation lookup.</p></div>
+          <ul className="inspection-boundaries"><li>Hashes and entropy cover the full file.</li><li>Strings, indicators, and the entropy map cover every byte.</li><li>Heuristic rules read the first 16 MiB and the final 1 MiB.</li><li>Capture decoding stops at 20,000 packets.</li><li>Indicators are research leads, not a malware verdict.</li></ul>
           <button className="button primary" type="submit" disabled={inspecting || !file}><FileSearch size={16} aria-hidden="true" />{inspecting ? 'Inspecting bytes…' : 'Inspect file'}</button>
         </form>
         {fileError ? <Failure message={fileError} /> : null}
@@ -69,13 +69,37 @@ function WarningList({ warnings }: { warnings: string[] }) { return <ul classNam
 
 function ArtifactReport({ analysis }: { analysis: Analysis }) {
   return <Panel title={`Inspection: ${analysis.filename}`} className="lab-report" extra={<span className="badge note-verified"><ShieldCheck size={14} aria-hidden="true" />No code executed</span>}>
-    <dl className="artifact-metrics"><div><dt>Header / type</dt><dd>{analysis.file_type}</dd></div><div><dt>File size</dt><dd>{number(analysis.size)} bytes</dd></div><div><dt>Shannon entropy</dt><dd>{analysis.entropy.toFixed(3)} / 8</dd></div></dl>
+    <dl className="artifact-metrics"><div><dt>Header / type</dt><dd>{analysis.file_type}</dd></div><div><dt>File size</dt><dd>{number(analysis.size)} bytes</dd></div><div><dt>Shannon entropy</dt><dd>{analysis.entropy.toFixed(3)} / 8</dd></div><div><dt>Coverage</dt><dd>Whole file scanned ({number(analysis.sampled_bytes)} bytes)</dd></div></dl>
     <WarningList warnings={analysis.warnings} />
+    <EntropyMap entropyMap={analysis.entropyMap} />
     <div className="panel-body"><h3>File fingerprints</h3><dl className="hashes">{(['sha256', 'sha1', 'md5'] as const).map(key => <div key={key}><dt>{key.toUpperCase()}</dt><dd><code>{analysis[key]}</code></dd></div>)}</dl><p className="field-hint">SHA-1 and MD5 are provided for correlation only, not security guarantees.</p>
       {analysis.signals.length ? <><h3>Static review leads</h3><ul className="signal-list">{analysis.signals.map(signal => <li key={signal.label}><strong>{signal.label}</strong><span>Approximate line {signal.line} · <code>{signal.match}</code></span><p>{signal.reason}</p></li>)}</ul></> : <p className="muted">No configured heuristic matched the sampled bytes. This is not a clean bill of health.</p>}
+      {analysis.segments.length ? <><h3 id="segments-heading">Embedded segments ({analysis.segments.length})</h3><p className="field-hint">File signatures were located, never extracted, opened, or inspected.</p><ul className="segment-list" aria-labelledby="segments-heading">{analysis.segments.map((segment, index) => <li key={`${segment.type}-${segment.offset}-${index}`}><strong>{segment.type}</strong><span><code>0x{segment.offset.toString(16)}</code> · byte {number(segment.offset)}</span></li>)}</ul></> : null}
       {analysis.capture ? <section className="capture-report"><h3>Capture summary</h3><p>{analysis.capture.format} · <strong>{number(analysis.capture.packet_count)} packets decoded</strong> · {number(analysis.capture.captured_bytes)} captured bytes</p><div className="source-tags">{analysis.capture.protocols.map(protocol => <span key={protocol.name}>{protocol.name}: {number(protocol.count)}</span>)}</div>{analysis.capture.truncated ? <p className="inline-error" role="alert">The capture is truncated or malformed. The decoded summary is incomplete.</p> : null}<WarningList warnings={analysis.capture.warnings} /><div className="table-scroll" role="region" aria-label="Decoded network conversations" tabIndex={0}><table className="capture-table"><caption>Decoded network conversations</caption><thead><tr><th scope="col">Source</th><th scope="col">Destination</th><th scope="col">Protocol</th><th scope="col">Packets</th></tr></thead><tbody>{analysis.capture.conversations.map((flow, index) => <tr key={index}><td><code>{flow.source}</code></td><td><code>{flow.destination}</code></td><td>{flow.protocol}</td><td>{number(flow.packets)}</td></tr>)}</tbody></table></div>{!analysis.capture.conversations.length ? <p className="muted">No supported IP conversations were decoded.</p> : null}</section> : null}
-      {analysis.indicators.urls.length || analysis.indicators.ipv4.length ? <><h3>Observed indicators</h3><ul className="indicator-list">{analysis.indicators.urls.map(url => <li key={url}><SafeLink url={url} /></li>)}{analysis.indicators.ipv4.map(ip => <li key={ip}><code>{ip}</code></li>)}</ul></> : null}
-      <details className="report-details"><summary>Printable strings ({analysis.strings.length})</summary><pre className="raw-record">{analysis.strings.join('\n') || 'No printable strings in the sampled bytes.'}</pre></details>
+      {anyIndicators(analysis) ? <><h3>Observed indicators</h3>{groupIndicators(analysis).map(group => group.values.length ? <div className="indicator-group" key={group.name}><h4>{group.name}</h4>{group.linked ? <ul className="indicator-list">{group.values.map(value => <li key={value}><SafeLink url={value} /></li>)}</ul> : <ul className="indicator-list">{group.values.map(value => <li key={value}><code>{value}</code></li>)}</ul>}</div> : null)}</> : null}
+      <details className="report-details"><summary>Printable strings ({analysis.strings.length})</summary><pre className="raw-record">{analysis.strings.join('\n') || 'No printable strings in the scanned file.'}</pre></details>
+      <h3>UTF-16 strings</h3><details className="report-details"><summary>UTF-16 strings found ({analysis.strings_utf16.length})</summary><pre className="raw-record">{analysis.strings_utf16.join('\n') || 'No UTF-16 strings in the scanned file.'}</pre></details>
     </div>
   </Panel>;
+}
+
+function EntropyMap({ entropyMap }: { entropyMap: { block: number; count: number; values: number[]; highRegions: { start: number; end: number; blockCount: number }[] } }) {
+  if (!entropyMap.values.length) return null;
+  const regions = entropyMap.highRegions;
+  const buckets = entropyMap.count === 1 ? '1 block of' : `${entropyMap.count} blocks of`;
+  const label = `Entropy map, ${buckets} ${entropyMap.block} bytes each. ${regions.length ? `${regions.length} high-entropy region${regions.length === 1 ? ', bytes' : 's, byte ranges'} ${regions.map(region => `${region.start} to ${region.end}`).join(', ')}.` : 'No high-entropy regions.'}`;
+  return <section><h3>Entropy map</h3><figure className="entropy-map" role="img" aria-label={label}><figcaption>Entropy map · {buckets} {entropyMap.block} bytes · {regions.length} high-entropy region{regions.length === 1 ? '' : 's'}</figcaption><div className="entropy-bars" aria-hidden="true">{entropyMap.values.map((value, index) => <span key={index} className={value > 7.5 ? 'entropy-bar high' : 'entropy-bar'} style={{ height: `${Math.max(2, Math.round(value / 8 * 100))}%` }} />)}</div></figure></section>;
+}
+
+function groupIndicators(analysis: Analysis): { name: string; values: string[]; linked: boolean }[] {
+  return [
+    { name: 'URLs', values: analysis.indicators.urls, linked: true },
+    { name: 'Domains', values: analysis.indicators.domains, linked: false },
+    { name: 'IPv4 addresses', values: analysis.indicators.ipv4, linked: false },
+    { name: 'IPv6 addresses', values: analysis.indicators.ipv6, linked: false },
+  ];
+}
+
+function anyIndicators(analysis: Analysis): boolean {
+  return Object.values(analysis.indicators).some(values => values.length);
 }

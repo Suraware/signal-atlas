@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from starlette.responses import JSONResponse
 
-MAX_BODY = 9 * 1024 * 1024
+MAX_BODY = (64 + 2) * 1024 * 1024
 
 
 def lan_addresses():
@@ -60,7 +60,7 @@ class LocalSecurityMiddleware:
             if size > MAX_BODY or size < 0:
                 raise BodyTooLarge
         except (ValueError, BodyTooLarge):
-            return await JSONResponse({"detail": "Request body exceeds the 9 MiB limit."}, status_code=413)(scope, receive, send)
+            return await JSONResponse({"detail": f"Request body exceeds the {MAX_BODY >> 20} MiB limit."}, status_code=413)(scope, receive, send)
         application_receive = receive
         if scope["method"] in {"POST", "PUT", "PATCH"}:
             body = bytearray()
@@ -77,7 +77,7 @@ class LocalSecurityMiddleware:
                         if not message.get("more_body", False):
                             break
             except BodyTooLarge:
-                return await JSONResponse({"detail": "Request body exceeds the 9 MiB limit."}, status_code=413)(scope, receive, send)
+                return await JSONResponse({"detail": f"Request body exceeds the {MAX_BODY >> 20} MiB limit."}, status_code=413)(scope, receive, send)
             except TimeoutError:
                 return await JSONResponse({"detail": "Upload timed out. Try a smaller file on a stable local connection."}, status_code=408)(scope, receive, send)
             consumed = False

@@ -51,6 +51,16 @@ def test_note_crud_revision_conflict_unsafe_links_and_restore(client):
     assert client.get("/api/notes").json()[0]["title"] == "Updated"
 
 
+def test_artifact_upload_body_limit_tracks_the_64_mib_analysis_cap(client):
+    from atlas.analysis import MAX_FILE
+    from atlas.security import MAX_BODY
+
+    assert MAX_BODY >= MAX_FILE + (1 << 20)
+    response = client.post("/api/analyze", files={"file": ("big.bin", b"A" * (MAX_FILE + 1))})
+    assert response.status_code == 413
+    assert "64 MiB" in response.json()["detail"]
+
+
 def test_export_is_a_download_with_source_linked_local_context(client):
     client.post("/api/notes", json={"title": "A finding", "body": "Source: https://example.org"})
     response = client.get("/api/export")
@@ -62,12 +72,15 @@ def test_export_is_a_download_with_source_linked_local_context(client):
 
 
 def test_file_analysis_has_upload_caps_and_does_not_save_artifacts(client):
+    from atlas.analysis import MAX_FILE
+    from atlas.security import MAX_BODY
+
     response = client.post("/api/analyze", files={"file": ("sample.bin", b"hello static research\x00", "application/octet-stream")})
     assert response.status_code == 200
     assert response.json()["execution"] == "never"
-    response = client.post("/api/analyze", files={"file": ("large", b"x" * (8 * 1024 * 1024 + 1))})
+    response = client.post("/api/analyze", files={"file": ("large", b"x" * (MAX_FILE + 1))})
     assert response.status_code == 413
-    assert client.post("/api/notes", content=b"x" * (10 * 1024 * 1024), headers={"content-type": "application/json"}).status_code == 413
+    assert client.post("/api/notes", content=b"x" * (MAX_BODY + 1), headers={"content-type": "application/json"}).status_code == 413
 
 
 def test_dependency_audit_requires_consent_and_reuses_cached_results_offline(tmp_path):
@@ -105,9 +118,14 @@ def test_dependency_audit_requires_consent_and_reuses_cached_results_offline(tmp
 
 
 def test_chunked_body_cannot_bypass_upload_limit(client):
+    from atlas.security import MAX_BODY
+
+    chunk = 1024 * 1024
+    count = MAX_BODY // chunk + 2
+
     def body():
-        for _ in range(10):
-            yield b"x" * 1024 * 1024
+        for _ in range(count):
+            yield b"x" * chunk
     response = client.post("/api/notes", content=body(), headers={"content-type": "application/json"})
     assert response.status_code == 413
 

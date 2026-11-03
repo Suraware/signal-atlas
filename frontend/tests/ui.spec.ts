@@ -48,6 +48,29 @@ test('exact dependency audit and read-only artifact inspection have usable resul
   await expect(page.getByText('No code executed', { exact: true })).toBeVisible();
 });
 
+test('larger artifact analysis surfaces entropy map, embedded segments, and UTF-16 strings without extraction', async ({ page }) => {
+  await page.goto('/#/lab');
+  await expect(page.getByText(/Up to 64 MiB/)).toBeVisible();
+  const utf16 = Buffer.from('hidden-tunnel.example.net', 'utf16le');
+  const buffer = Buffer.concat([
+    Buffer.from('MZ\0\0 https://silent.example.org/drop CreateRemoteThread \x00'),
+    Buffer.from('\x00'.repeat(500)), Buffer.from('PK\x03\x04\0\0\0\0'),
+    Buffer.from('\x00'.repeat(500)), Buffer.from('%PDF-1.4\0\0'), utf16,
+  ]);
+  await page.getByLabel('File to inspect', { exact: true }).setInputFiles({ name: 'composite.bin', mimeType: 'application/octet-stream', buffer });
+  await page.getByRole('button', { name: 'Inspect file', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Entropy map' })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Entropy map/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Embedded segments/ })).toBeVisible();
+  await expect(page.getByText('ZIP archive', { exact: true })).toBeVisible();
+  await expect(page.getByText('PDF document', { exact: true })).toBeVisible();
+  await expect(page.getByText(/located, never extracted/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: /UTF-16 strings/ })).toBeVisible();
+  await page.getByText('UTF-16 strings found (1)').click();
+  await expect(page.getByText('hidden-tunnel.example.net', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('Whole file scanned')).toBeVisible();
+});
+
 test('source limits are visible and export contains local evidence', async ({ page }) => {
   await page.goto('/#/sources');
   await expect(page.getByRole('heading', { name: 'Public sources', exact: true })).toBeVisible();

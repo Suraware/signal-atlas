@@ -184,7 +184,7 @@ def create_app(data_dir, *, allowed_hosts=None, transport=None, frontend_dir=Non
         try:
             content = await file.read(MAX_FILE + 1)
             if len(content) > MAX_FILE:
-                raise HTTPException(413, "Files must be at most 8 MiB.")
+                raise HTTPException(413, f"Files must be at most {MAX_FILE >> 20} MiB.")
             return await asyncio.to_thread(analyze_file, file.filename or "artifact", content)
         finally:
             await file.close()

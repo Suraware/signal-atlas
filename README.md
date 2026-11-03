@@ -11,7 +11,7 @@ A local-first workspace for security research. Public vulnerability intelligence
 - Write or import plain Markdown notes; tag them, cite URLs, and link CVE mentions. Save with revision-conflict protection, or delete and restore a note.
 - Browse documented relationships as a diagram and an accessible table.
 - Audit up to 100 exact package versions from npm files, Python requirements, or a CycloneDX JSON SBOM. Remote OSV queries require explicit consent; previous queries can be read offline.
-- Inspect files up to 8 MiB: headers, hashes, entropy, printable strings, heuristic source-code leads, and bounded PCAP/PCAPNG summaries. **Nothing is executed.**
+- Inspect files up to 64 MiB: headers, hashes, whole-file entropy map, printable ASCII and UTF-16 strings, embedded file-signature discovery, network indicators, heuristic source-code leads, and bounded PCAP/PCAPNG summaries. **Nothing is executed.**
 - Export source-linked intelligence and notes as JSON or Markdown for offline review or an agent's context.
 
 Eight sources are an initial integration set, **not all free APIs**. Each has a bounded ingestion strategy. A missing CVSS score remains unknown; KEV evidence, public PoC metadata, EPSS probability, and a researcher's assessment are separate signals. None establishes that your system is affected.
@@ -61,7 +61,7 @@ Optional settings:
 - npm ranges, unpinned requirements, includes, URLs, and install commands are skipped, never resolved or executed. Python environment markers are not evaluated. CycloneDX supports npm, PyPI, Maven, crates.io, Go, NuGet, and RubyGems package URLs with exact versions; this is not a general-purpose dependency resolver.
 - OSV receives only package names, ecosystems, and exact versions when consent is enabled. Cached results show their original check date. No matches means “no matches returned,” not “safe.”
 - Uploaded artifacts never go to an external service and are not retained after the request. The multipart library may spool larger uploads to a temporary local file before closing it. This is static, best-effort inspection—not antivirus, a sandbox, decompilation, exploit validation, or a full code audit.
-- Strings and heuristic rules inspect the first 1 MiB; hashes and entropy cover the full file. Captures are limited to 10,000 packets and 100 displayed directional conversations. No live capture, stream reassembly, packet payload interpretation, or decryption is performed.
+- Strings, indicators, and the entropy map cover the whole file. Heuristic rules read the first 16 MiB and the final 1 MiB, and a warning names any skipped middle range. Captures are limited to 20,000 packets and 100 displayed directional conversations, and at most 100 embedded file signatures are located every 512 bytes — signatures are never extracted or opened. No live capture, stream reassembly, packet payload interpretation, or decryption is performed.
 - JSON exports include original source evidence; Markdown is a readable summary. Whole-workspace exports contain at most 10,000 vulnerabilities and all active notes. Exports do not include the OSV query cache or deleted notes and are not full database backups.
 
 ## Local data and backups

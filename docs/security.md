@@ -17,10 +17,10 @@ There are **no application accounts, authorization roles, or built-in TLS**. Any
 ## Uploaded files and manifests
 
 - No `eval`, shell command, subprocess execution, module import, dynamic loader, exploit invocation, or document renderer receives uploaded bytes or manifest content.
-- Request bodies are capped at 9 MiB, including multipart overhead, with a 30-second upload deadline. Individual artifacts are capped at 8 MiB and inspection runs in a worker thread.
+- Request bodies are capped at 66 MiB, including multipart overhead, with a 30-second upload deadline. Individual artifacts are capped at 64 MiB and inspection runs in a worker thread.
 - Artifact content is not saved to the application's data directory or sent to remote services. The multipart library can spool larger uploads to a temporary local file; the upload is closed after each request. Do not treat this as forensic secure erasure or protection from host swap, backups, or OS crash recovery.
 - Archive headers are identified but archives are never unpacked. PDF headers are identified but documents are never rendered. PE, ELF, and Mach-O labels identify headers, not validated executable structure.
-- Strings and static rules read the first 1 MiB. Capture parsing is bounded to 10,000 packets, 20,000 PCAPNG blocks, 256 interfaces, and 2,000 tracked directional flows; at most 100 flows are displayed. Unsupported link types, IPv6 extensions, or non-IP protocols may remain undecoded.
+- Strings, indicators, and the entropy map cover the whole file, bounded to 200 strings per encoding, 100 indicators per family, 512 entropy buckets, and 100 located file signatures. Heuristic rules read the first 16 MiB and the final 1 MiB. Capture parsing is bounded to 20,000 packets, 20,000 PCAPNG blocks, 256 interfaces, and 2,000 tracked directional flows; at most 100 flows are displayed. Unsupported link types, IPv6 extensions, or non-IP protocols may remain undecoded.
 - Packet summaries are not deep protocol analysis or full traffic reconstruction. No active packet capture starts. Truncated or malformed captures can produce incomplete summaries with warnings.
 - Only explicit exact package coordinates are queried. Dependency ranges, includes, URLs, commands, environment resolution, and installation are not followed. Consent is false by default; enabled OSV queries send only ecosystem, package name, and exact version.
 - An empty, failed, partial, or old audit must not be presented as proof of safety. Static heuristics can have false positives and false negatives.
