@@ -22,7 +22,7 @@ The following checks cover delivered product commit `2c1e877`, including dense U
 - Full-list/detail headings wrap at 1440px, 720px, and 390px. Untrusted source markup stays plain text. Compact overview previews remain clipped by design.
 - The real cached `CVE-2026-111357` reads as a complete **200-character** source heading ending “as exploited in the wild in October 2026.” on both the private backup and the updated original app. Its different merged description and original saved observations remain intact.
 
-Controlled older-CVE fixtures prove application behavior, **not current live availability** at public services. No new live intelligence lookup was performed during this upgrade's verification.
+Controlled older-CVE fixtures prove application behavior, **not current live availability** at public services. The upgrade verifiers initiated no live intelligence lookup.
 
 ### Larger-file measurements
 
@@ -81,6 +81,8 @@ At **21:43 UTC**, the identity-checked handoff stopped only the original Signal 
 The original app passed **32 GET/HEAD-only Firefox view/width/origin combinations** at 1440px and 390px. The complete reported CVE heading appeared in its list, detail, and JSON export. Cached submission focused the main workspace and made no public lookup. Original raw evidence remained available. No page/console error, failed request/response, write request, or external page request was observed. Desktop and narrow screenshots were inspected.
 
 Before shutdown, after shutdown, after startup, and after the read-only checks, every original table count and the complete logical SHA-256 matched the baseline: **2,062 records, 2,189 evidence rows, zero notes**, `e878878800436b9cceefeaa275044d9b44427a3e9a214b40985bd4ea40918d78`. No schema addition, research-note edit, watchlist change, or live intelligence lookup was needed for this handoff. Host LAN access is verified; separate-device reachability remains untested. The listener is still unauthenticated HTTP for a trusted LAN only.
+
+After the clean **21:44 UTC** handoff check, a separate local client requested `POST /api/sync`, which the server accepted. Source-state timestamps show the refresh at **21:45 UTC**. It changed the live cache to **2,064 records and 2,191 evidence rows**; all 2,062 original record IDs remain present, with zero notes and watched records. The verifiers did not issue that request and did not roll back the refresh. A later comparison therefore no longer matches the pre-refresh digest. The preserved handoff snapshots still prove restart integrity; the final report distinguishes that proof from subsequent live-cache activity.
 
 ## Initial analyzer snapshot (`3d819fc`)
 
@@ -190,7 +192,7 @@ These local reports, temporary verifier scripts, screenshots, and traces are **n
 - Upgrade production: `/tmp/opencode/signal-atlas-upgrade-checks/production/report.json` and `browser-report.json`, with three launcher logs, upload fixtures, screenshots, and traces. `production/read-only-rehearsal/browser-report.json` records the 32-view handoff rehearsal. Verifiers: `/tmp/opencode/signal-atlas-upgrade-production.py`, `signal-atlas-upgrade-production-browser.cjs`, and `signal-atlas-upgrade-final-browser.cjs`.
 - Analyzer-only staging: `/tmp/opencode/signal-atlas-upgrade-checks/staged-analysis/report.json` and four gate logs; source-only index copy: `/tmp/opencode/signal-atlas-staged-analysis-ez6k6zor/`. Verifier: `/tmp/opencode/signal-atlas-verify-staged-analysis.py`.
 - Updated original-app handoff: `/tmp/opencode/signal-atlas-upgrade-checks/handoff/report.json` and `browser-report.json`, with launcher/browser logs, screenshots, and read-only traces. Verifier: `/tmp/opencode/signal-atlas-upgrade-handoff.py`. `original-data-before-delivery.json` records the immediate pre-delivery baseline comparison.
-- Public delivery: `/tmp/opencode/signal-atlas-upgrade-checks/delivery/pre-push-gates.json`, `pre-push-firefox.log`, `public-product-handoff.json`, and `report.json`. The final report verifies public visibility, matching clean local/remote HEAD, the running updated process, served asset bytes, and unchanged original data. Verifier: `/tmp/opencode/signal-atlas-upgrade-delivery.py`.
+- Public delivery: `/tmp/opencode/signal-atlas-upgrade-checks/delivery/pre-push-gates.json`, `pre-push-firefox.log`, `public-product-handoff.json`, and `report.json`. The final report verifies public visibility, matching clean local/remote HEAD, the running updated process, served asset bytes, preserved restart-integrity snapshots, and separately requested later cache activity. `post-refresh-baseline-check-failed.json` and `post-handoff-data-diagnostic.json` preserve the detected change rather than hide or undo it. Verifier: `/tmp/opencode/signal-atlas-upgrade-delivery.py`.
 
 - Clean installation: `/tmp/opencode/signal-atlas-clean-final-kzqeqiin/`; snapshot metadata: `/tmp/opencode/signal-atlas-clean-final-metadata.json`.
 - Accessibility: `/tmp/opencode/signal-atlas-accessibility/report.json`, `svg-contrast.json`, and `browser-zoom.json`, with screenshots and traces in that directory.
