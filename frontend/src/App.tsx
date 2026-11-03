@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, ArrowDownToLine, ChevronRight, Database, FlaskConical, LayoutDashboard, Library, LoaderCircle, Network, Radio, RefreshCw, Search, ShieldCheck, X } from 'lucide-react';
-import { request, send, useResource } from './api';
+import { ApiError, request, send, useResource } from './api';
 import { AppLink, confirmHashNavigation, Failure, navigate, PageHeading, WorkspaceContext, type Notice } from './common';
 import type { Source, SyncStatus, Vulnerability } from './types';
 import { OverviewPage, IntelligencePage, DetailPage } from './pages/Intelligence';
@@ -17,6 +17,7 @@ const nav = [
   { path: '/lab', name: 'Analysis lab', icon: FlaskConical },
   { path: '/sources', name: 'Public sources', icon: Radio },
 ];
+const fullCve = /^CVE-\d{4}-\d{4,12}$/i;
 
 function readRoute() {
   const raw = window.location.hash.slice(1) || '/overview';
@@ -31,6 +32,9 @@ export function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
+  const [lookupFeedback, setLookupFeedback] = useState<Notice | null>(null);
+  const lookupActive = useRef(false);
+  const contextRevision = useRef(0);
   const refresh = useCallback(() => setVersion(value => value + 1), []);
   const notify = useCallback((notice: Notice) => setNotice(notice), []);
   const sources = useResource<Source[]>('/sources', version);
@@ -43,6 +47,7 @@ export function App() {
         return;
       }
       acceptedHash = window.location.hash;
+      contextRevision.current++;
       setRoute(readRoute());
       window.scrollTo({ top: 0 });
     };
@@ -82,18 +87,63 @@ export function App() {
     } catch (error) { notify({ message: error instanceof Error ? error.message : 'Refresh failed. Try again.', tone: 'error' }); }
     finally { setSyncing(false); }
   };
-  const lookup = async (identifier: string) => {
+  const lookup = async (identifier: string, cacheFirst = false) => {
+    if (lookupActive.current) return;
+    lookupActive.current = true;
     setLookingUp(true);
+    const startedHash = window.location.hash;
+    const startedRevision = contextRevision.current;
+    const currentContext = () => window.location.hash === startedHash && contextRevision.current === startedRevision;
+    const feedback = (message: string, tone: Notice['tone']) => {
+      setLookupFeedback({ message, tone });
+      if (!cacheFirst) notify({ message, tone });
+    };
+    const presentRecord = (record: Vulnerability, message: string, tone: Notice['tone']) => {
+      const path = `/vulnerability/${encodeURIComponent(record.id)}`;
+      const opened = currentContext() && navigate(path);
+      if (opened) document.getElementById('workspace-content')?.focus();
+      const outcome: Notice = { message: opened ? message : `${message} Your current view was kept.`, tone };
+      setLookupFeedback(outcome);
+      if (!cacheFirst || !opened) notify({ ...outcome, ...(!opened ? { actionLabel: 'Open cached record', action: () => { navigate(path); } } : {}) });
+    };
     try {
+      if (cacheFirst) {
+        setLookupFeedback({ message: `Checking the local cache for ${identifier}…`, tone: 'info' });
+        try {
+          const cached = await request<Vulnerability>(`/vulnerabilities/${encodeURIComponent(identifier)}`);
+          if (!cached || typeof cached.id !== 'string' || !fullCve.test(cached.id) || typeof cached.title !== 'string' || !cached.title || !Array.isArray(cached.aliases) || !cached.aliases.includes(identifier)) {
+            throw new Error('The local server returned an invalid cached record.');
+          }
+          presentRecord(cached, `${cached.id} is available in the local cache. No public request was sent.`, 'success');
+          return;
+        }
+        catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 404) {
+            const detail = error instanceof Error ? error.message : 'The local server could not be reached.';
+            feedback(`Could not read the local cache. ${detail} No public request was sent. Check the local server and try again.`, 'error');
+            return;
+          }
+        }
+        if (!currentContext()) {
+          feedback('The search context changed. No public request was sent. Submit your search again when ready.', 'info');
+          return;
+        }
+      }
+      setLookupFeedback({ message: `Looking up ${identifier} in public sources… You can keep working while it finishes.`, tone: 'info' });
       const result = await send<{ record: Vulnerability | null; results: { status: string }[] }>('/lookup', { identifier });
       refresh();
+      const errors = result.results.filter(item => item.status === 'error').length;
       if (result.record) {
-        navigate(`/vulnerability/${encodeURIComponent(result.record.id)}`);
-        const errors = result.results.filter(item => item.status === 'error').length;
-        notify({ message: errors ? `Cached evidence is available. ${errors} source${errors === 1 ? '' : 's'} could not be refreshed; see Public sources.` : 'Source-linked evidence is available in the local workspace.', tone: errors ? 'info' : 'success' });
-      } else notify({ message: 'No record was returned. Check the identifier and Public sources for request or rate-limit errors.', tone: 'error' });
-    } catch (error) { notify({ message: error instanceof Error ? error.message : 'Lookup failed. Try again.', tone: 'error' }); }
-    finally { setLookingUp(false); }
+        presentRecord(result.record, errors ? `Evidence for ${result.record.id} is saved locally. ${errors} public source${errors === 1 ? '' : 's'} failed; check Public sources.` : `Source-linked evidence for ${result.record.id} is saved in the local workspace.`, errors ? 'info' : 'success');
+      } else feedback(errors ? `Could not retrieve ${identifier}. ${errors} public source${errors === 1 ? '' : 's'} failed. Check Public sources, then try again. No record was added.` : `No public record was found for ${identifier}. Check the identifier or try again later.`, 'error');
+    } catch (error) { feedback(error instanceof Error ? error.message : 'Lookup failed. Try again.', 'error'); }
+    finally { lookupActive.current = false; setLookingUp(false); }
+  };
+  const submitSearch = () => {
+    if (lookupActive.current) return;
+    const identifier = query.trim();
+    if (fullCve.test(identifier)) void lookup(identifier.toUpperCase(), true);
+    else { setLookupFeedback(null); navigate('/intelligence'); }
   };
 
   const section = route.path.split('/')[1] || 'overview';
@@ -125,7 +175,7 @@ export function App() {
         <div className="sidebar-bottom"><div className="privacy-note"><ShieldCheck size={18} aria-hidden="true" /><strong>Local-first by design</strong><p>No cloud account. No API keys.<br />Evidence stays on your server.</p></div><a className="export-link" href="/api/export" download><ArrowDownToLine size={17} aria-hidden="true" />Export research</a><div className="sidebar-foot"><span>Open source</span><span>v0.1.0</span></div></div>
       </aside>
       <div className="workspace">
-        <header className="utility-header"><div className="breadcrumb"><Activity size={17} aria-hidden="true" /><span>Workspace</span><ChevronRight size={13} aria-hidden="true" /><strong>{title}</strong></div><form className="global-search" onSubmit={event => { event.preventDefault(); navigate('/intelligence'); }}><label htmlFor="intel-search">Search intelligence</label><div><Search size={17} aria-hidden="true" /><input id="intel-search" value={query} onChange={event => setQuery(event.target.value.slice(0, 300))} placeholder="CVE, product, package…" maxLength={300} /><button type="submit" aria-label="Search cached intelligence"><ChevronRight size={17} aria-hidden="true" /></button></div></form><button className="button primary refresh-button" onClick={() => void refreshSources()} disabled={syncing}>{syncing ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}{syncing ? 'Refreshing sources…' : 'Refresh sources'}</button></header>
+        <header className="utility-header"><div className="breadcrumb"><Activity size={17} aria-hidden="true" /><span>Workspace</span><ChevronRight size={13} aria-hidden="true" /><strong>{title}</strong></div><form className="global-search" aria-busy={lookingUp} onSubmit={event => { event.preventDefault(); submitSearch(); }}><label htmlFor="intel-search">Search intelligence</label><div className="search-control"><Search size={17} aria-hidden="true" /><input id="intel-search" value={query} onChange={event => { contextRevision.current++; setQuery(event.target.value.slice(0, 300)); if (!lookupActive.current) setLookupFeedback(null); }} placeholder="CVE, product, package…" maxLength={300} aria-describedby="intel-search-hint intel-search-feedback" /><button type="submit" aria-label={lookingUp ? 'Lookup in progress' : 'Submit intelligence search'} disabled={lookingUp}>{lookingUp ? <LoaderCircle size={17} className="spin" aria-hidden="true" /> : <ChevronRight size={17} aria-hidden="true" />}</button></div><p id="intel-search-hint" className="search-hint">Full CVE: local cache first, then public sources if missing. Other searches stay local.</p><p id="intel-search-feedback" className={`search-feedback ${lookupFeedback?.tone === 'error' ? 'search-error' : ''}`} role={lookupFeedback?.tone === 'error' ? 'alert' : 'status'} aria-atomic="true">{lookupFeedback?.message || ''}</p></form><button className="button primary refresh-button" onClick={() => void refreshSources()} disabled={syncing}>{syncing ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <RefreshCw size={16} aria-hidden="true" />}{syncing ? 'Refreshing sources…' : 'Refresh sources'}</button></header>
         <main id="workspace-content" tabIndex={-1}>{page}</main>
         <footer className="workspace-footer"><span><Database size={13} aria-hidden="true" />SQLite-backed · No remote AI required</span><a href="/api/openapi.json" target="_blank" rel="noopener noreferrer">Local API schema</a></footer>
       </div>

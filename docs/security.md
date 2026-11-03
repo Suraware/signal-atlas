@@ -21,6 +21,7 @@ There are **no application accounts, authorization roles, or built-in TLS**. Any
 - Artifact content is not saved to the application's data directory or sent to remote services. The multipart library can spool larger uploads to a temporary local file; the upload is closed after each request. Do not treat this as forensic secure erasure or protection from host swap, backups, or OS crash recovery.
 - Archive headers are identified but archives are never unpacked. PDF headers are identified but documents are never rendered. PE, ELF, and Mach-O labels identify headers, not validated executable structure.
 - Strings, indicators, and the entropy map cover the whole file, bounded to 200 strings per encoding, 100 indicators per family, 512 entropy buckets, and 100 located file signatures. Heuristic rules read the first 16 MiB and the final 1 MiB. Capture parsing is bounded to 20,000 packets, 20,000 PCAPNG blocks, 256 interfaces, and 2,000 tracked directional flows; at most 100 flows are displayed. Unsupported link types, IPv6 extensions, or non-IP protocols may remain undecoded.
+- IPv6 candidates are validated whole and limited to 110 characters, including at most 64 scope characters. Oversized scopes are rejected, never truncated into valid-looking leads. UTF-16 printable-run matching uses overlapping 64 KiB windows to avoid retaining whole-run regex state. These output and scan limits do not guarantee processing time or peak memory for arbitrary files or concurrent uploads.
 - Packet summaries are not deep protocol analysis or full traffic reconstruction. No active packet capture starts. Truncated or malformed captures can produce incomplete summaries with warnings.
 - Only explicit exact package coordinates are queried. Dependency ranges, includes, URLs, commands, environment resolution, and installation are not followed. Consent is false by default; enabled OSV queries send only ecosystem, package name, and exact version.
 - An empty, failed, partial, or old audit must not be presented as proof of safety. Static heuristics can have false positives and false negatives.
@@ -28,6 +29,10 @@ There are **no application accounts, authorization roles, or built-in TLS**. Any
 ## External requests
 
 Backend requests go only to registered HTTPS endpoints in `backend/atlas/sources.py`. Identifiers are validated and encoded; user URLs cannot choose a destination. Redirects are not followed. Timeouts, payload limits, serialized calls, persistent request budgets, and cache windows bound traffic. Notes and artifacts are never supplied to an external AI, reputation, or vulnerability endpoint. Feed refresh/lookup still reveal the server's public IP and requested public identifiers to those upstream services.
+
+Global search makes no public request while typing. Submitting a complete CVE checks the local cache first; only HTTP 404 permits the existing public lookup. Partial identifiers and product/package searches remain local. Connection failures, other cache errors, and malformed successful cache responses are not permission to query upstream services.
+
+HTTP 404 from a targeted CVE.org or CIRCL record endpoint means the record was not found. Feed/list-endpoint 404s still report source failures. Neither path bypasses the persistent request budget or erases existing cached evidence.
 
 ## Local storage
 
@@ -41,4 +46,4 @@ The cache preserves older records when upstream requests fail or a record disapp
 
 This release has no independent penetration test, malicious-file sandbox, threat-intelligence completeness guarantee, multi-user authorization, per-client abuse quota, or malware verdict. It is not appropriate for untrusted LAN clients. Automated tests and source review establish only the behaviors they exercise.
 
-For a security report, first arrange a private channel with the project owner. No hosted issue tracker or private security-reporting address is configured yet. Avoid public disclosure of secrets, live targets, or weaponized samples.
+For a security report, first arrange a private channel with the project owner. No private security-reporting address is configured yet. Use the [public issue tracker](https://github.com/Suraware/signal-atlas/issues) only for nonsensitive bug reports. Do not disclose secrets, live targets, or weaponized samples there.

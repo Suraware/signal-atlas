@@ -13,6 +13,10 @@ from .models import normalize_id, utcnow
 from .sources import SOURCES, SourceError, parse_source
 
 
+class _RecordNotFound(Exception):
+    """A targeted record endpoint returned HTTP 404, not a feed failure."""
+
+
 class IntelService:
     def __init__(self, store, transport=None):
         self.store = store
@@ -35,7 +39,7 @@ class IntelService:
             headers={"User-Agent": "SignalAtlas/0.1 (local-first open-source research)", "Accept": "application/json"},
         )
 
-    async def _request(self, client, source_id, url, *, params=None, body=None):
+    async def _request(self, client, source_id, url, *, params=None, body=None, allow_not_found=False):
         source = SOURCES[source_id]
         state = self.store.source_state(source_id)
         now = time.time()
@@ -48,6 +52,8 @@ class IntelService:
         async with client.stream("POST" if body is not None else "GET", url, params=params, json=body, headers=headers) as response:
             if response.status_code == 304:
                 return None
+            if response.status_code == 404 and allow_not_found:
+                raise _RecordNotFound
             if response.status_code in {429, 403}:
                 retry = response.headers.get("retry-after", "60")
                 try:
@@ -195,11 +201,14 @@ class IntelService:
                     else:
                         osv_id = next((alias for alias in (existing or {}).get("aliases", []) if alias.startswith("GHSA-")), identifier)
                         url = source.url + "/vulns/" + quote(osv_id, safe="")
-                    payload = await asyncio.wait_for(self._request(client, source_id, url, params=params), timeout=30)
+                    payload = await asyncio.wait_for(self._request(client, source_id, url, params=params, allow_not_found=source_id in {"cve", "circl"}), timeout=30)
                     parsed = parse_source(source_id, payload) if payload is not None else []
                     count = await asyncio.to_thread(self.store.upsert_records, parsed, source_id)
                     self.store.set_source_state(source_id, status="ok", last_success=utcnow(), error=None)
                     results.append({"id": source_id, "status": "ok" if count else "not_found", "records": count})
+                except _RecordNotFound:
+                    self.store.set_source_state(source_id, status="ok", last_success=utcnow(), error=None)
+                    results.append({"id": source_id, "status": "not_found", "records": 0})
                 except (SourceError, httpx.HTTPError, TimeoutError) as exc:
                     error = str(exc)[:300] or "The source timed out."
                     self.store.set_source_state(source_id, status="error", error=error)

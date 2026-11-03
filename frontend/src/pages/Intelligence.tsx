@@ -36,7 +36,7 @@ export function OverviewPage() {
         <section className="evidence-guide"><ShieldAlert size={22} aria-hidden="true" /><h2>Read the signals separately</h2><p><strong>Known exploited</strong> is catalog evidence. <strong>Public PoC</strong> is published exploit metadata. <strong>EPSS</strong> predicts exploitation probability, not severity.</p><p>None of these alone establishes that your system is affected.</p></section>
       </div>
     </div>
-    <LocalHint>Cached browsing stays local. Refresh and identifier lookup contact the listed public sources.</LocalHint>
+    <LocalHint>Cached browsing stays local. Refresh and uncached CVE lookup contact the listed public sources. Explicit public lookup may also refresh cached evidence.</LocalHint>
   </>;
 }
 
@@ -58,7 +58,7 @@ export function IntelligencePage({ query, initialWatched = false }: { query: str
   if (watched) params.set('watched', 'true');
   const records = useResource<RecordList>(`/vulnerabilities?${params}`, version);
   return <>
-    <PageHeading title="Vulnerability intelligence" description="Search cached advisories, compare signals, and follow the evidence." />
+    <PageHeading title="Vulnerability intelligence" description="Search cached advisories and compare signals. Submit a full CVE above to check public sources if it is not cached." />
     <Panel>
       <fieldset className="filter-bar"><legend className="sr-only">Filter cached vulnerabilities</legend>
         <div className="field"><label htmlFor="severity-filter">Severity</label><select id="severity-filter" value={severity} onChange={event => setSeverity(event.target.value)}><option value="">All severities</option>{(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'] as Severity[]).map(value => <option value={value} key={value}>{value.charAt(0) + value.slice(1).toLowerCase()}</option>)}</select></div>
@@ -71,7 +71,7 @@ export function IntelligencePage({ query, initialWatched = false }: { query: str
       {records.loading ? <Loading /> : records.error ? <Failure message={records.error} retry={records.reload} /> : records.data?.items.length ? <>
         <VulnerabilityTable records={records.data} />
         <div className="pagination"><span>{number(offset + 1)}–{number(Math.min(offset + records.data.items.length, records.data.total))} of {number(records.data.total)}</span><div><button className="button secondary" disabled={offset === 0} onClick={() => setOffset(value => Math.max(0, value - 50))}>Previous</button><button className="button secondary" disabled={offset + 50 >= records.data.total} onClick={() => setOffset(value => value + 50)}>Next</button></div></div>
-      </> : <Empty title="No cached records match" headingLevel={2}><p>Try a product name or a full identifier. Remove filters to widen the search, or use public lookup below.</p></Empty>}
+      </> : <Empty title="No cached records match" headingLevel={2}><p>Try a product name or remove filters. Submit a full CVE above, or use public identifier lookup below.</p></Empty>}
     </Panel>
     <IdentifierLookup seed={/^(CVE-|GHSA-)/i.test(q) ? q : ''} />
   </>;

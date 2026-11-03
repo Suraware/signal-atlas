@@ -102,7 +102,7 @@ def _cve(payload):
     identifier = metadata["cveId"]
     references.insert(0, _reference("https://www.cve.org/CVERecord?id=" + identifier, "CVE.org primary record"))
     record = {
-        "id": identifier, "title": cna.get("title") or description[:180] or identifier, "description": description,
+        "id": identifier, "title": cna.get("title") or description or identifier, "description": description,
         "cvss": score, "severity": severity_from_score(score), "cwes": unique(cwes),
         "vendors": [item.get("vendor") for item in affected if item.get("vendor") not in ("n/a", "N/A")],
         "products": [item.get("product") for item in affected if item.get("product") not in ("n/a", "N/A")],
@@ -137,7 +137,7 @@ def _nvd(payload):
         refs = [_reference("https://nvd.nist.gov/vuln/detail/" + item["id"], "NVD vulnerability detail")]
         refs.extend(_reference(ref.get("url", ""), "NVD linked reference", ", ".join(ref.get("tags", [])) or "reference") for ref in item.get("references", []))
         records.append((normalize_record({
-            "id": item["id"], "title": description[:180] or item["id"], "description": description,
+            "id": item["id"], "title": description or item["id"], "description": description,
             "cvss": score, "severity": severity_from_score(score), "cwes": cwes, "vendors": vendors, "products": products,
             "published": item.get("published"), "modified": item.get("lastModified"), "references": refs,
         }), item))

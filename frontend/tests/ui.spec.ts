@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('search, evidence, persistent note, and real graph relationships work offline', async ({ page }) => {
+test('cached CVE search, evidence, persistent note, and real graph relationships work offline', async ({ page }) => {
   const errors: string[] = [];
   const remoteRequests: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -11,8 +11,6 @@ test('search, evidence, persistent note, and real graph relationships work offli
   await expect(page.getByRole('heading', { name: 'Research overview', exact: true })).toBeVisible();
   await page.getByLabel('Search intelligence', { exact: true }).fill('CVE-2024-3094');
   await page.getByLabel('Search intelligence', { exact: true }).press('Enter');
-  await expect(page.getByRole('heading', { name: 'Vulnerability intelligence', exact: true })).toBeVisible();
-  await page.getByRole('link', { name: 'CVE-2024-3094', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'XZ Utils supply-chain compromise', exact: true })).toBeVisible();
   await expect(page.getByText('10.0', { exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Add research note', exact: true }).click();
@@ -318,4 +316,330 @@ test('graph relationship lines remain distinguishable against the patterned canv
     });
     expect(Math.min(...ratios), `Relationship line contrast at ${width}px`).toBeGreaterThanOrEqual(3);
   }
+});
+
+const olderDescription = 'OpenSSL Heartbleed allows a remote peer to read memory through a malformed TLS heartbeat request. This fixed integration record demonstrates that a published older CVE can be retrieved even when it is absent from the local cache.';
+const legacyHeading = 'A configuration broker trusts client-supplied settings and allows privilege escalation. The complete source observation must remain readable in the list and the detail heading, including its final sentence. Researchers must distinguish this source-specific heading from a different merged catalog description. Untrusted markup is text, not an instruction: <script>window.UNTRUSTED_HEADING_EXECUTED = true</script>. ' + 'X'.repeat(220) + ' Full source heading ends here.';
+
+test('cache-first CVE search retrieves an older uncached record and reuses it offline', async ({ page }) => {
+  const lookups: unknown[] = [];
+  const responses: Promise<{ record: { id: string; published: string; source_ids: string[] }; results: { status: string }[] }>[] = [];
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (request.url().endsWith('/api/lookup')) lookups.push(request.postDataJSON());
+  });
+  page.on('response', response => { if (response.url().endsWith('/api/lookup')) responses.push(response.json()); });
+  expect((await page.request.get('/api/vulnerabilities/CVE-2014-0160')).status()).toBe(404);
+  await page.goto('/');
+  const search = page.getByLabel('Search intelligence', { exact: true });
+  await search.fill(' cve-2014-0160 ');
+  expect(lookups).toEqual([]);
+  await search.press('Enter');
+  await expect(page.getByRole('heading', { name: olderDescription, exact: true })).toBeVisible();
+  const result = await responses[0];
+  expect(result.record.id).toBe('CVE-2014-0160');
+  expect(result.record.published).toBe('2014-04-07T00:00:00Z');
+  expect(result.record.source_ids).toEqual(['circl', 'cve', 'epss', 'nvd']);
+  expect(result.results.map((item: { status: string }) => item.status)).toEqual(['ok', 'ok', 'ok', 'ok', 'not_found']);
+  expect(lookups).toEqual([{ identifier: 'CVE-2014-0160' }]);
+  await page.getByRole('link', { name: 'Signal Atlas overview', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Research overview', exact: true })).toBeVisible();
+  await search.press('Enter');
+  await expect(page.getByRole('heading', { name: olderDescription, exact: true })).toBeVisible();
+  await expect(page.locator('.global-search [role="status"]')).toContainText(/local cache/i);
+  await page.reload();
+  await search.fill('CVE-2014-0160');
+  await search.press('Enter');
+  await expect(page.getByRole('heading', { name: olderDescription, exact: true })).toBeVisible();
+  expect(lookups).toEqual([{ identifier: 'CVE-2014-0160' }]);
+  expect(errors).toEqual([]);
+});
+
+test('typing a full CVE and submitting partial identifiers or product searches stay local', async ({ page }) => {
+  const lookups: string[] = [];
+  page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.url()); });
+  await page.goto('/#/intelligence');
+  const search = page.getByLabel('Search intelligence', { exact: true });
+  await search.fill('CVE-1999-99999');
+  await expect(page.getByRole('heading', { name: 'No cached records match', exact: true })).toBeVisible();
+  expect(lookups).toEqual([]);
+  for (const query of ['CVE-2014-', 'CVE-2014-0160 extra', 'GHSA-abcd-abcd-abcd', 'npm:lodash', 'xz']) {
+    await search.fill(query);
+    await search.press('Enter');
+    await expect(page).toHaveURL(/#\/intelligence$/);
+    await expect(page.locator('.results-heading')).toContainText(query);
+    await expect(page.locator('main .loading')).toHaveCount(0);
+  }
+  expect(lookups).toEqual([]);
+  await expect(search).toHaveAccessibleDescription(/public sources.*missing.*other searches.*local/i);
+});
+
+for (const failure of ['HTTP 500', 'connection failure']) {
+  test(`a full CVE cache failure (${failure}) never authorizes public lookup`, async ({ page }) => {
+    const lookups: string[] = [];
+    page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.url()); });
+    await page.route('**/api/vulnerabilities/CVE-1999-99999', route => failure === 'HTTP 500'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ detail: 'Controlled cache read failure.' }) })
+      : route.abort());
+    await page.goto('/');
+    const search = page.getByLabel('Search intelligence', { exact: true });
+    await search.fill('CVE-1999-99999');
+    await search.press('Enter');
+    await expect(page.locator('.global-search [role="alert"]')).toContainText(/local cache/i);
+    await expect(page.locator('.global-search [role="alert"]')).toContainText(/no public request/i);
+    await expect(search).toHaveValue('CVE-1999-99999');
+    await expect(page.locator('.global-search button[type="submit"]')).toBeEnabled();
+    await expect(page).not.toHaveURL(/#\/vulnerability\//);
+    expect(lookups).toEqual([]);
+  });
+}
+
+for (const body of ['null', 'false', '0', '{}', '[]', '"not a record"']) {
+  test(`a malformed successful CVE cache read (${body}) fails closed without public lookup`, async ({ page }) => {
+    const lookups: string[] = [];
+    page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.url()); });
+    await page.route('**/api/vulnerabilities/CVE-1999-99999', route => route.fulfill({ status: 200, contentType: 'application/json', body }));
+    await page.goto('/');
+    const search = page.getByLabel('Search intelligence', { exact: true });
+    await search.fill('CVE-1999-99999');
+    await search.press('Enter');
+    await expect(page.locator('.global-search button[type="submit"]')).toBeEnabled();
+    expect(lookups).toEqual([]);
+    await expect(page).not.toHaveURL(/#\/vulnerability\//);
+    await expect(page.locator('.global-search [role="alert"]')).toContainText(/local cache.*invalid.*no public request/i);
+    await expect(search).toHaveValue('CVE-1999-99999');
+  });
+}
+
+for (const sourceFailure of [false, true]) {
+  test(`full CVE lookup reports ${sourceFailure ? 'failed sources without claiming the CVE does not exist' : 'a missing public record without claiming a successful fetch'}`, async ({ page }) => {
+    const lookups: unknown[] = [];
+    page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.postDataJSON()); });
+    await page.route('**/api/lookup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      record: null,
+      results: ['cve', 'nvd', 'epss', 'circl', 'github'].map(id => sourceFailure
+        ? { id, status: 'error', error: 'Controlled source failure.' }
+        : { id, status: 'not_found', records: 0 }),
+    }) }));
+    await page.goto('/');
+    const search = page.getByLabel('Search intelligence', { exact: true });
+    await search.fill('CVE-1999-99999');
+    await search.press('Enter');
+    const feedback = page.locator('.global-search [role="alert"]');
+    await expect(feedback).toContainText(sourceFailure ? /sources.*failed/i : /no public record.*found/i);
+    if (sourceFailure) await expect(feedback).not.toContainText(/does not exist|no public record.*found/i);
+    await expect(feedback).toContainText(/check|try again/i);
+    await expect(search).toHaveValue('CVE-1999-99999');
+    await expect(page.locator('.global-search button[type="submit"]')).toBeEnabled();
+    await expect(page).not.toHaveURL(/#\/vulnerability\//);
+    expect(lookups).toEqual([{ identifier: 'CVE-1999-99999' }]);
+    await search.fill('xz');
+    await search.press('Enter');
+    await expect(page.getByRole('link', { name: 'CVE-2024-3094', exact: true })).toBeVisible();
+    expect(lookups).toHaveLength(1);
+  });
+}
+
+test('a cache-first CVE lookup opens available evidence even when another public source fails', async ({ page }) => {
+  const record = await (await page.request.get('/api/vulnerabilities/CVE-2024-3094')).json();
+  let cacheMiss = true;
+  await page.route('**/api/vulnerabilities/CVE-2024-3094', async route => {
+    if (cacheMiss) {
+      cacheMiss = false;
+      await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Controlled cache miss.' }) });
+    } else await route.continue();
+  });
+  await page.route('**/api/lookup', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    record,
+    results: [{ id: 'cve', status: 'cached', records: 1 }, { id: 'nvd', status: 'error', error: 'Controlled source failure.' }],
+  }) }));
+  await page.goto('/');
+  await page.getByLabel('Search intelligence', { exact: true }).fill('CVE-2024-3094');
+  await page.getByLabel('Search intelligence', { exact: true }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'XZ Utils supply-chain compromise', exact: true })).toBeVisible();
+  await expect(page.locator('.global-search [role="status"]')).toContainText(/1 public source.*failed/i);
+  await expect(page.locator('.global-search [role="status"]')).toContainText(/Public sources/);
+});
+
+test('explicit public CVE lookup and evidence refresh still use the existing bounded lookup action', async ({ page }) => {
+  const lookups: unknown[] = [];
+  page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.postDataJSON()); });
+  await page.goto('/#/intelligence');
+  await page.getByLabel('Public identifier lookup', { exact: true }).fill('CVE-2024-3094');
+  await page.getByRole('button', { name: 'Look up identifier', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'XZ Utils supply-chain compromise', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh evidence', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Refresh evidence', exact: true })).toBeEnabled();
+  expect(lookups).toEqual([{ identifier: 'CVE-2024-3094' }, { identifier: 'CVE-2024-3094' }]);
+});
+
+test('cache-first CVE search does not duplicate a pending cache check or fetch an edited identifier', async ({ page }) => {
+  let reads = 0;
+  const lookups: string[] = [];
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.url()); });
+  await page.route('**/api/vulnerabilities/CVE-1999-99999', async route => {
+    reads++;
+    await pending;
+    await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'This record is not cached.' }) });
+  });
+  try {
+    await page.goto('/');
+    const search = page.getByLabel('Search intelligence', { exact: true });
+    await search.fill('CVE-1999-99999');
+    await search.press('Enter');
+    await expect(page.locator('.global-search [role="status"]')).toContainText(/checking.*local cache/i);
+    await expect(page.locator('.global-search button[type="submit"]')).toBeDisabled();
+    await page.locator('.global-search').evaluate(form => { (form as HTMLFormElement).requestSubmit(); (form as HTMLFormElement).requestSubmit(); });
+    await search.fill('xz');
+    release();
+    await expect(page.locator('.global-search button[type="submit"]')).toBeEnabled();
+    await expect(search).toHaveValue('xz');
+    await expect(page).not.toHaveURL(/#\/vulnerability\//);
+    expect(reads).toBe(1);
+    expect(lookups).toEqual([]);
+    await search.press('Enter');
+    await expect(page.getByRole('link', { name: 'CVE-2024-3094', exact: true })).toBeVisible();
+  } finally { release(); }
+});
+
+for (const contextChange of ['query', 'route', 'round trip', 'new draft']) {
+  test(`a pending CVE lookup completes locally without redirecting after a ${contextChange} change`, async ({ page }) => {
+    let cacheMiss = true;
+    let requests = 0;
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    // Force one cache miss, then retain the real API's lookup, TTLs, and SQLite writes.
+    await page.route('**/api/vulnerabilities/CVE-2024-3094', async route => {
+      if (cacheMiss) {
+        cacheMiss = false;
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'Controlled cache miss.' }) });
+      } else await route.continue();
+    });
+    await page.route('**/api/lookup', async route => {
+      requests++;
+      const response = await route.fetch();
+      await pending;
+      await route.fulfill({ response });
+    });
+    try {
+      await page.goto('/');
+      const search = page.getByLabel('Search intelligence', { exact: true });
+      await search.fill('CVE-2024-3094');
+      await search.press('Enter');
+      await expect(page.locator('.global-search [role="status"]')).toContainText(/looking up.*public sources/i);
+      await expect(page.locator('.global-search button[type="submit"]')).toBeDisabled();
+      await page.locator('.global-search').evaluate(form => { (form as HTMLFormElement).requestSubmit(); (form as HTMLFormElement).requestSubmit(); });
+      if (contextChange === 'query') await search.fill('xz');
+      else if (contextChange === 'new draft') {
+        await page.getByRole('navigation', { name: 'Main workspace' }).getByRole('link', { name: 'Research library', exact: true }).click();
+        await page.getByRole('button', { name: 'New note', exact: true }).click();
+        await page.getByLabel('Note title', { exact: true }).fill('A draft created during public lookup');
+        await page.getByLabel('Note content', { exact: true }).fill('Keep this new reasoning.');
+      } else {
+        await page.getByRole('navigation', { name: 'Main workspace' }).getByRole('link', { name: 'Analysis lab', exact: true }).click();
+        await expect(page.getByRole('heading', { name: 'Analysis lab', exact: true })).toBeVisible();
+        if (contextChange === 'round trip') {
+          await page.getByRole('link', { name: 'Signal Atlas overview', exact: true }).click();
+          await expect(page.getByRole('heading', { name: 'Research overview', exact: true })).toBeVisible();
+        }
+      }
+      const keptURL = page.url();
+      release();
+      await expect(page.locator('.global-search button[type="submit"]')).toBeEnabled();
+      await expect(page).toHaveURL(keptURL);
+      expect(requests).toBe(1);
+      if (contextChange === 'query') await expect(search).toHaveValue('xz');
+      if (contextChange === 'new draft') {
+        await expect(page.getByLabel('Note title', { exact: true })).toHaveValue('A draft created during public lookup');
+        await expect(page.getByLabel('Note content', { exact: true })).toHaveValue('Keep this new reasoning.');
+      }
+      const cached = await page.request.get('/api/vulnerabilities/CVE-2024-3094');
+      expect(cached.ok()).toBe(true);
+      expect((await cached.json()).id).toBe('CVE-2024-3094');
+    } finally { release(); }
+  });
+}
+
+test('cached CVE navigation can be cancelled without discarding an unsaved note', async ({ page }) => {
+  const lookups: string[] = [];
+  page.on('request', request => { if (request.url().endsWith('/api/lookup')) lookups.push(request.url()); });
+  await page.goto('/#/research/new');
+  await page.getByLabel('Note title', { exact: true }).fill('Keep the CVE investigation draft');
+  await page.getByLabel('Note content', { exact: true }).fill('Unsaved source interpretation.');
+  const search = page.getByLabel('Search intelligence', { exact: true });
+  await search.fill('CVE-2024-3094');
+  let warned = false;
+  page.once('dialog', async dialog => { warned = true; expect(dialog.message()).toMatch(/unsaved/i); await dialog.dismiss(); });
+  await search.press('Enter');
+  await expect(page.locator('.global-search button[type="submit"]')).toBeEnabled();
+  await expect(page.getByLabel('Note content', { exact: true })).toHaveValue('Unsaved source interpretation.');
+  await expect(page).toHaveURL(/#\/research\/new$/);
+  expect(warned).toBe(true);
+  expect(lookups).toEqual([]);
+  page.once('dialog', dialog => dialog.accept());
+  await search.press('Enter');
+  await expect(page.getByRole('heading', { name: 'XZ Utils supply-chain compromise', exact: true })).toBeVisible();
+});
+
+test('a legacy heading wraps completely in the full list and detail without executing source markup', async ({ page }, testInfo) => {
+  for (const width of [1440, 720, 390]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/#/intelligence');
+    const search = page.getByLabel('Search intelligence', { exact: true });
+    await search.fill('configuration broker');
+    await search.press('Enter');
+    const row = page.getByRole('row').filter({ has: page.getByRole('link', { name: 'CVE-2025-10001', exact: true }) });
+    const title = row.locator('.record-title');
+    await expect(title).toHaveText(legacyHeading);
+    const listSize = await title.evaluate(element => ({
+      width: element.clientWidth, content: element.scrollWidth,
+      height: element.clientHeight, line: parseFloat(getComputedStyle(element).lineHeight),
+    }));
+    expect(listSize.height, `Full heading must wrap at ${width}px`).toBeGreaterThan(listSize.line * 2);
+    expect(listSize.content).toBeLessThanOrEqual(listSize.width);
+    await page.screenshot({ path: testInfo.outputPath(`legacy-list-${width}.png`), fullPage: true });
+    await row.getByRole('link', { name: 'CVE-2025-10001', exact: true }).click();
+    const heading = page.getByRole('heading', { name: legacyHeading, level: 1, exact: true });
+    await expect(heading).toBeVisible();
+    const headingSize = await heading.evaluate(element => ({ width: element.clientWidth, content: element.scrollWidth }));
+    expect(headingSize.content).toBeLessThanOrEqual(headingSize.width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).UNTRUSTED_HEADING_EXECUTED)).toBeUndefined();
+    await expect(page.locator('main h1 script')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`legacy-detail-${width}.png`), fullPage: true });
+  }
+  await page.goto('/');
+  const preview = page.locator('.intel-table.compact tr').filter({ has: page.getByRole('link', { name: 'CVE-2025-10001', exact: true }) }).locator('.record-title');
+  await expect(preview).toHaveText(legacyHeading);
+  expect(await preview.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+});
+
+
+test('real targeted upstream 404s produce missing-CVE feedback without source-failure warnings', async ({ page }) => {
+  test.setTimeout(90_000);
+  // The suite shares an isolated API. Observe its persistent budgets rather than reset or bypass them.
+  await expect.poll(async () => {
+    const inventory = await (await page.request.get('/api/sources')).json();
+    return inventory.filter((source: { id: string }) => ['cve', 'nvd', 'epss', 'circl', 'github'].includes(source.id))
+      .every((source: { next_request_at?: number }) => (source.next_request_at || 0) <= Date.now() / 1000);
+  }, { timeout: 65_000, intervals: [500, 1000, 2000] }).toBe(true);
+  let result!: Promise<{ record: unknown; results: { id: string; status: string; records: number }[] }>;
+  page.on('response', response => { if (response.url().endsWith('/api/lookup')) result = response.json(); });
+  await page.goto('/');
+  const search = page.getByLabel('Search intelligence', { exact: true });
+  await search.fill('CVE-1999-99999');
+  await search.press('Enter');
+  await expect(page.locator('.global-search [role="alert"]')).toContainText(/no public record.*found/i);
+  await expect(page.locator('.global-search [role="alert"]')).not.toContainText(/sources.*failed/i);
+  const lookup = await result;
+  expect(lookup.record).toBeNull();
+  expect(lookup.results).toEqual(['cve', 'nvd', 'epss', 'circl', 'github'].map(id => ({ id, status: 'not_found', records: 0 })));
+  const inventory = await (await page.request.get('/api/sources')).json();
+  expect(inventory.filter((source: { id: string }) => ['cve', 'circl'].includes(source.id))
+    .map((source: { status: string; error: unknown }) => [source.status, source.error])).toEqual([['ok', null], ['ok', null]]);
+  await expect(search).toHaveValue('CVE-1999-99999');
+  await expect(page).not.toHaveURL(/#\/vulnerability\//);
 });

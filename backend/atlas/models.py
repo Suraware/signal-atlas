@@ -79,7 +79,7 @@ def normalize_record(record: dict) -> dict:
     result = {
         "id": canonical,
         "aliases": aliases,
-        "title": str(record.get("title") or identifier)[:500],
+        "title": str(record.get("title") or identifier)[:50000],
         "description": str(record.get("description") or "")[:50000],
         "severity": severity,
         "cvss": score,

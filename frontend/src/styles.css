@@ -80,11 +80,15 @@ svg { flex-shrink: 0; }
 .breadcrumb strong { color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .global-search { width: 290px; flex-shrink: 0; }
 .global-search > label { font-size: 12px; display: block; color: var(--muted); margin-bottom: 2px; }
-.global-search > div { display: flex; align-items: center; border: 1px solid var(--control-border); border-radius: var(--radius); padding-left: 10px; background: #f9fbfd; gap: 8px; }
+.global-search .search-control { display: flex; align-items: center; border: 1px solid var(--control-border); border-radius: var(--radius); padding-left: 10px; background: #f9fbfd; gap: 8px; }
 .global-search input { width: 100%; min-width: 0; height: 40px; border: none; background: transparent; padding: 0; font-size: 14px; }
-.global-search button { background: transparent; color: var(--muted); border: none; width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--radius); }
-.global-search > div:focus-within { outline: 3px solid var(--primary); outline-offset: 2px; }
+.global-search button { background: transparent; color: var(--muted); border: none; min-width: 44px; width: 44px; height: 44px; display: grid; place-items: center; border-radius: var(--radius); }
+.global-search .search-control:focus-within { outline: 3px solid var(--primary); outline-offset: 2px; }
 .global-search input:focus-visible { outline: none; }
+.search-hint, .search-feedback { margin: 6px 0 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.search-hint { color: var(--muted); }
+.search-feedback:empty { display: none; }
+.search-error { color: var(--critical); }
 main { flex: 1; padding: 28px; min-width: 0; }
 main:focus { outline: none; }
 .workspace-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; color: var(--muted); font-size: 12px; padding: 16px 28px; border-top: 1px solid var(--border); }
@@ -172,7 +176,8 @@ caption { text-align: left; font-size: 13px; color: var(--muted); padding: 12px 
 .intel-table.compact th:nth-child(4) { width: 16%; }
 .intel-table td { padding-top: 8px; padding-bottom: 12px; }
 .record-id { display: inline-flex; align-items: center; min-height: 32px; font-family: var(--mono); font-size: 13px; font-weight: 550; text-decoration: none; }
-.record-title { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.7; }
+.record-title { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; line-height: 1.7; }
+.compact .record-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .evidence-label { display: inline-flex; align-items: center; gap: 5px; color: var(--critical); font-size: 12px; font-weight: 550; }
 .poc-label { color: #795911; font-size: 12px; }
 .numeric { font-family: var(--mono); font-size: 12px; }

@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .models import CVE_IN_TEXT, merge_records, normalize_id, normalize_record, safe_url, unique, utcnow
+from .sources import SourceError, parse_source
 
 
 class ConflictError(Exception):
@@ -128,6 +129,29 @@ class Store:
     def _summary(self, conn, row):
         result = json.loads(row["payload"])
         result["source_ids"] = [item[0] for item in conn.execute("SELECT source_id FROM evidence WHERE record_id=? ORDER BY source_id", (row["id"],))]
+        title = result["title"]
+        if len(title) in (180, 500):
+            # Tied normalized headings do not identify the source that supplied them.
+            # Recover only when matching evidence agrees; genuine or unknown titles veto it.
+            candidates = set()
+            for item in conn.execute("SELECT source_id,raw,normalized FROM evidence WHERE record_id=?", (row["id"],)):
+                if json.loads(item["normalized"]).get("title") != title:
+                    continue
+                if item["source_id"] not in {"cve", "circl", "nvd"}:
+                    candidates.add(title)
+                    continue
+                raw = json.loads(item["raw"])
+                payload = {"vulnerabilities": [{"cve": raw}]} if item["source_id"] == "nvd" else raw
+                try:
+                    observations = parse_source(item["source_id"], payload)
+                except SourceError:
+                    candidates.add(title)
+                    continue
+                candidates.update([observation["title"] for observation, _ in observations if observation["id"] in result["aliases"]] or [title])
+            if len(candidates) == 1:
+                candidate = next(iter(candidates))
+                if candidate.startswith(title) and len(candidate) > len(title):
+                    result["title"] = candidate
         result["fetched_at"] = row["fetched_at"]
         result["watched"] = bool(row["watched"])
         return result

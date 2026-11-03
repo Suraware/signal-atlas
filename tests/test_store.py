@@ -116,3 +116,119 @@ def test_source_state_does_not_erase_cached_records(store):
     assert state["last_success"] == "2026-11-03T00:00:00Z"
     assert state["error"] == "Timeout"
     assert store.list_records()["total"] == 1
+
+
+@pytest.mark.parametrize("source_id, legacy_limit", [("cve", 180), ("circl", 180), ("nvd", 180), ("cve", 500), ("nvd", 500)])
+def test_legacy_heading_recovers_from_its_own_source_without_writing_research(store, source_id, legacy_limit):
+    identifier = "CVE-2026-111357"
+    description = (
+        "A privileged broker trusts configuration from an authenticated client and allows privilege escalation. "
+        "The attacker can change settings accepted by the broker without proving permission to change them. "
+        "Affected installations include default configurations and configurations with optional integrations enabled. "
+        "The issue is confined to the vulnerable releases listed by the vendor and must be investigated against the deployed environment. "
+        "Researchers should read the original observation and distinguish it from a different catalog summary. "
+        "The complete heading ends with this source-specific evidence."
+    )
+    assert len(description) > 500
+    raw = ({"id": identifier, "descriptions": [{"lang": "en", "value": description}]} if source_id == "nvd" else {
+        "cveMetadata": {"cveId": identifier, "state": "PUBLISHED"},
+        "containers": {"cna": {"descriptions": [{"lang": "en", "value": description}]}},
+    })
+    store.upsert_record({"id": identifier, "title": description[:legacy_limit], "description": description}, source_id, raw)
+    unrelated = "A different catalog description. " * 30
+    store.upsert_record({"id": identifier, "title": "Catalog heading", "description": unrelated, "kev": True}, "cisa", {"catalog": True})
+    store.set_watched(identifier, True)
+    note = store.save_note({"title": "Local investigation", "body": "Research for " + identifier})
+    with store.connection() as conn:
+        before = list(conn.iterdump())
+    record = store.get_record(identifier)
+    assert record["title"] == description
+    assert record["description"] == unrelated
+    assert record["watched"] is True
+    assert record["notes"] == [note]
+    observation = next(item for item in record["evidence"] if item["source_id"] == source_id)
+    assert observation["record"]["title"] == description[:legacy_limit]
+    assert observation["raw"] == raw
+    assert store.list_records(q=identifier)["items"][0]["title"] == description
+    assert store.export_context(identifier)["vulnerabilities"][0]["title"] == description
+    assert store.export_context()["vulnerabilities"][0]["title"] == description
+    with store.connection() as conn:
+        assert list(conn.iterdump()) == before
+
+
+def test_legacy_normalization_cut_on_an_explicit_title_recovers_from_raw_title(store):
+    title = "An explicit source title with important details. " * 12 + "The full title ends here."
+    assert len(title) > 500
+    raw = {
+        "cveMetadata": {"cveId": "CVE-2024-3094", "state": "PUBLISHED"},
+        "containers": {"cna": {"title": title, "descriptions": [{"lang": "en", "value": "Different advisory context."}]}},
+    }
+    store.upsert_record({"id": "CVE-2024-3094", "title": title[:500], "description": "Different advisory context."}, "cve", raw)
+    assert store.get_record("CVE-2024-3094")["title"] == title
+
+
+@pytest.mark.parametrize("source_id", ["cve", "circl"])
+def test_genuine_180_character_source_title_is_not_replaced_by_description(store, source_id):
+    title = "A" * 180
+    description = title + " This additional text belongs to the description, not the title."
+    raw = {
+        "cveMetadata": {"cveId": "CVE-2024-3094", "state": "PUBLISHED"},
+        "containers": {"cna": {"title": title, "descriptions": [{"lang": "en", "value": description}]}},
+    }
+    store.upsert_record({"id": "CVE-2024-3094", "title": title, "description": description}, source_id, raw)
+    assert store.get_record("CVE-2024-3094")["title"] == title
+
+
+def test_unrelated_source_prefix_cannot_replace_a_genuine_catalog_heading(store):
+    title = "A" * 180
+    description = title + " Some unrelated text with the same opening."
+    raw = {
+        "cveMetadata": {"cveId": "CVE-2024-3094", "state": "PUBLISHED"},
+        "containers": {"cna": {"title": "A different short source title", "descriptions": [{"lang": "en", "value": description}]}},
+    }
+    store.upsert_record({"id": "CVE-2024-3094", "title": "A different short source title", "description": description}, "cve", raw)
+    store.upsert_record({"id": "CVE-2024-3094", "title": title}, "cisa", {"vulnerabilityName": title})
+    assert store.get_record("CVE-2024-3094")["title"] == title
+
+
+@pytest.mark.parametrize("source_id", ["cve", "circl", "cisa"])
+@pytest.mark.parametrize("legacy_limit", [180, 500])
+def test_matching_legacy_fallback_cannot_replace_another_sources_genuine_title(store, source_id, legacy_limit):
+    identifier = "CVE-2024-3094"
+    title = "A" * legacy_limit
+    raw_title = ({"cveID": identifier, "vulnerabilityName": title} if source_id == "cisa" else {
+        "cveMetadata": {"cveId": identifier, "state": "PUBLISHED"},
+        "containers": {"cna": {"title": title, "descriptions": [{"lang": "en", "value": "Different CNA context."}]}},
+    })
+    store.upsert_record({"id": identifier, "title": title}, source_id, raw_title)
+    fallback = title + " This suffix belongs only to the NVD fallback description."
+    raw_fallback = {"id": identifier, "descriptions": [{"lang": "en", "value": fallback}]}
+    store.upsert_record({"id": identifier, "title": title, "description": fallback}, "nvd", raw_fallback)
+    store.set_watched(identifier, True)
+    note = store.save_note({"title": "Preserve the source heading", "body": identifier})
+    with store.connection() as conn:
+        before = list(conn.iterdump())
+    record = store.get_record(identifier)
+    assert record["title"] == title
+    assert record["description"] == fallback
+    assert record["watched"] is True and record["notes"] == [note]
+    assert store.list_records(q=identifier)["items"][0]["title"] == title
+    assert store.export_context(identifier)["vulnerabilities"][0]["title"] == title
+    assert {item["source_id"]: item["raw"] for item in record["evidence"]} == {source_id: raw_title, "nvd": raw_fallback}
+    with store.connection() as conn:
+        assert list(conn.iterdump()) == before
+
+
+def test_conflicting_full_source_headings_leave_ambiguous_legacy_provenance_unchanged(store):
+    identifier, title = "CVE-2024-3094", "A" * 180
+    cve_description = title + " This is the CNA description."
+    nvd_description = title + " This different suffix is from NVD."
+    raw = {
+        "cveMetadata": {"cveId": identifier, "state": "PUBLISHED"},
+        "containers": {"cna": {"descriptions": [{"lang": "en", "value": cve_description}]}},
+    }
+    store.upsert_record({"id": identifier, "title": title, "description": cve_description}, "cve", raw)
+    store.upsert_record({"id": identifier, "title": title, "description": nvd_description}, "nvd", {
+        "id": identifier, "descriptions": [{"lang": "en", "value": nvd_description}],
+    })
+    assert store.get_record(identifier)["title"] == title

@@ -7,6 +7,7 @@ A local-first workspace for security research. Public vulnerability intelligence
 ## What it does
 
 - Search and filter correlated CVE/GHSA/OSV records; inspect raw source evidence, dates, references, and a local watchlist.
+- Submit a complete CVE to open its cached record or retrieve it from public sources when it is missing. Read complete source headings, including proven legacy text recovered offline.
 - Refresh eight public, unauthenticated sources: CISA KEV, GitHub Advisories, NVD, Exploit-DB metadata, FIRST EPSS, CVE.org, CIRCL, and OSV.
 - Write or import plain Markdown notes; tag them, cite URLs, and link CVE mentions. Save with revision-conflict protection, or delete and restore a note.
 - Browse documented relationships as a diagram and an accessible table.
@@ -16,13 +17,21 @@ A local-first workspace for security research. Public vulnerability intelligence
 
 Eight sources are an initial integration set, **not all free APIs**. Each has a bounded ingestion strategy. A missing CVSS score remains unknown; KEV evidence, public PoC metadata, EPSS probability, and a researcher's assessment are separate signals. None establishes that your system is affected.
 
+### Find an existing CVE
+
+Enter a complete identifier, such as `CVE-2014-0160`, in **Search intelligence** and submit. A valid cached record opens without public requests. Only a local HTTP 404 permits the existing bounded public lookup, which saves any returned evidence locally. Source failures are reported. Failed reads and malformed successful cache responses never start a public request.
+
+Typing, partial identifiers, and product/package searches stay local. Complete headings are preserved up to 50,000 characters. Older clipped headings are extended only when matching saved source evidence agrees on the missing text. Ambiguous headings stay unchanged; reading them does not rewrite the database.
+
 ## Quick start
 
 Prerequisites: Linux/macOS with Bash, Python 3.11+, [uv](https://docs.astral.sh/uv/getting-started/installation/), and Node.js 22.12+ with npm. Dependency installation needs internet access; browsing cached records does not.
 
-From the project folder:
+Clone the [public repository](https://github.com/Suraware/signal-atlas), then install from its folder:
 
 ```bash
+git clone https://github.com/Suraware/signal-atlas.git
+cd signal-atlas
 uv sync --frozen --extra dev
 npm --prefix frontend ci
 npm --prefix frontend run build
@@ -61,7 +70,10 @@ Optional settings:
 - npm ranges, unpinned requirements, includes, URLs, and install commands are skipped, never resolved or executed. Python environment markers are not evaluated. CycloneDX supports npm, PyPI, Maven, crates.io, Go, NuGet, and RubyGems package URLs with exact versions; this is not a general-purpose dependency resolver.
 - OSV receives only package names, ecosystems, and exact versions when consent is enabled. Cached results show their original check date. No matches means “no matches returned,” not “safe.”
 - Uploaded artifacts never go to an external service and are not retained after the request. The multipart library may spool larger uploads to a temporary local file before closing it. This is static, best-effort inspection—not antivirus, a sandbox, decompilation, exploit validation, or a full code audit.
-- Strings, indicators, and the entropy map cover the whole file. Heuristic rules read the first 16 MiB and the final 1 MiB, and a warning names any skipped middle range. Captures are limited to 20,000 packets and 100 displayed directional conversations, and at most 100 embedded file signatures are located every 512 bytes — signatures are never extracted or opened. No live capture, stream reassembly, packet payload interpretation, or decryption is performed.
+- Strings, indicators, and the entropy map scan the whole file. Results retain up to 200 strings per encoding (240-character previews), 100 indicators per family, 512 entropy buckets, and 20 high-entropy regions. Heuristic rules read the first 16 MiB and the final 1 MiB, and a warning names any skipped middle range.
+- IPv6 leads are validated as complete candidates, not fragments of malformed addresses. Scope identifiers are limited to 64 characters. UTF-16 indicator scans include short runs independently of the six-character string-preview minimum.
+- Captures are limited to 20,000 packets and 100 displayed directional conversations. At most 100 embedded file signatures are shown; closely spaced repetitions of the same signature are skipped. Signatures are never extracted or opened. No live capture, stream reassembly, packet payload interpretation, or decryption is performed.
+- Larger inspections take seconds and use additional memory. The 64 MiB file limit is not a processing-time or memory guarantee, especially with concurrent uploads. See the [measured larger-file checks](docs/verification.md#larger-file-measurements).
 - JSON exports include original source evidence; Markdown is a readable summary. Whole-workspace exports contain at most 10,000 vulnerabilities and all active notes. Exports do not include the OSV query cache or deleted notes and are not full database backups.
 
 ## Local data and backups
