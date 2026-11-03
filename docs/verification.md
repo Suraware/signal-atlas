@@ -4,11 +4,11 @@ Verified on **2026-11-03**. These results apply to this session's source snapsho
 
 ## Combined analyzer and CVE upgrade
 
-The following checks cover the final fix-pass code, including dense UTF-16 scanning, complete IPv6 candidates, and cache-first CVE search. Earlier snapshots below are retained as history, not substituted for these gates. The single fresh-context review and its inline fixes are complete. Separate upgrade commits/push and the original-workspace restart remain pending at this checkpoint.
+The following checks cover delivered product commit `2c1e877`, including dense UTF-16 scanning, complete IPv6 candidates, and cache-first CVE search. Earlier snapshots below are retained as history, not substituted for these gates. The single fresh-context review and its inline fixes are complete. The separate analyzer and CVE commits are public, and the updated original-workspace handoff passed. Delivery documentation is recorded separately from the tested product code.
 
 | Gate | Command | Observed result |
 | --- | --- | --- |
-| Backend behavior | `.venv/bin/python -m pytest -q` | **104 passed**, 28.83 seconds |
+| Backend behavior | `.venv/bin/python -m pytest -q` | **104 passed**, 25.38 seconds |
 | Python static checks | `.venv/bin/ruff check backend tests scripts` | All checks passed |
 | Production interface | `npm --prefix frontend run build` | TypeScript and Vite build passed |
 | Browser acceptance | `npm --prefix frontend test` | **42 isolated Firefox tests passed**, 1.4 minutes |
@@ -20,7 +20,7 @@ The following checks cover the final fix-pass code, including dense UTF-16 scann
 - Targeted CVE.org/CIRCL HTTP 404s report a missing record rather than a source failure; feed/list-endpoint 404s remain errors. Request budgets are still enforced. The real-browser missing-record regression observes existing persistent budgets rather than resetting or bypassing them.
 - Source failures and genuine missing records have distinct feedback. Immediate in-flight guards prevent duplicate requests. Edited queries, navigation round trips, and new drafts prevent stale redirects; a completed result remains available through **Open cached record**. Unsaved-note protection remains effective.
 - Full-list/detail headings wrap at 1440px, 720px, and 390px. Untrusted source markup stays plain text. Compact overview previews remain clipped by design.
-- The real cached `CVE-2026-111357` reads as a complete **200-character** source heading ending “as exploited in the wild in October 2026.” on a private backup. Its different merged description and original saved observations remain intact.
+- The real cached `CVE-2026-111357` reads as a complete **200-character** source heading ending “as exploited in the wild in October 2026.” on both the private backup and the updated original app. Its different merged description and original saved observations remain intact.
 
 Controlled older-CVE fixtures prove application behavior, **not current live availability** at public services. No new live intelligence lookup was performed during this upgrade's verification.
 
@@ -62,6 +62,25 @@ No physical-device LAN test, assistive-technology user study, full accessibility
 ### Fresh-context review
 
 One fresh-context read-only review of the combined upgrade completed with no Critical findings. Its four Important findings and the two additional indicator findings entered one inline fix pass, with **19 backend** and **seven Firefox** failing regressions observed first. The fixes cover ambiguous title provenance, malformed successful cache reads, genuine targeted upstream 404s, oversized IPv6 scopes, missing/invented IPv6 forms, and short UTF-16 indicators. All final gates above passed after the fixes; no Critical or Important finding remains in that reviewed scope. This is not a penetration test or a guarantee that no other defects exist.
+
+### Public delivery and updated original-workspace handoff
+
+The repository is [Suraware/signal-atlas](https://github.com/Suraware/signal-atlas), confirmed **PUBLIC** with default branch **main**. The baseline was published first; the upgrades were committed separately and pushed without force:
+
+| Commit | Delivered change |
+| --- | --- |
+| `bddb30d` | Initial public baseline |
+| `3d819fc` | Initial 64 MiB static analyzer upgrade |
+| `464463c` | Bounded scans, complete indicators, and entropy-map fixes |
+| `2c1e877` | Complete CVE headings and cache-first existing-CVE search |
+
+Fresh pre-push gates passed **104 backend tests**, **42 isolated Firefox tests**, Ruff, production build, and staged whitespace checks. The committed tree matched the verified index. The public remote and clean local `main` both resolved to `2c1e877` after the product push. Private data, environments, build output, and test artifacts are not tracked. Final delivery-evidence updates change documentation only.
+
+At **21:43 UTC**, the identity-checked handoff stopped only the original Signal Atlas process **55147** using its PID file descriptor. Its log confirmed application shutdown completion. `./start.sh --lan --port 8731` then started the updated app as process **104798**, using the original `data/` directory. It serves the current production HTML, JavaScript, and CSS at loopback, localhost, and **http://192.168.0.7:8731**. Automatic refresh remains disabled. No service or network configuration was installed or changed.
+
+The original app passed **32 GET/HEAD-only Firefox view/width/origin combinations** at 1440px and 390px. The complete reported CVE heading appeared in its list, detail, and JSON export. Cached submission focused the main workspace and made no public lookup. Original raw evidence remained available. No page/console error, failed request/response, write request, or external page request was observed. Desktop and narrow screenshots were inspected.
+
+Before shutdown, after shutdown, after startup, and after the read-only checks, every original table count and the complete logical SHA-256 matched the baseline: **2,062 records, 2,189 evidence rows, zero notes**, `e878878800436b9cceefeaa275044d9b44427a3e9a214b40985bd4ea40918d78`. No schema addition, research-note edit, watchlist change, or live intelligence lookup was needed for this handoff. Host LAN access is verified; separate-device reachability remains untested. The listener is still unauthenticated HTTP for a trusted LAN only.
 
 ## Initial analyzer snapshot (`3d819fc`)
 
@@ -170,6 +189,8 @@ These local reports, temporary verifier scripts, screenshots, and traces are **n
 - Changed surfaces: `/tmp/opencode/signal-atlas-upgrade-checks/accessibility/report.json` and `upgrade-browser-zoom.json`, with screenshots and traces. Verifiers: `signal-atlas-upgrade-a11y.cjs`, `signal-atlas-upgrade-browser-zoom.py`, and `signal-atlas-upgrade-accessibility-run.py` under `/tmp/opencode`.
 - Upgrade production: `/tmp/opencode/signal-atlas-upgrade-checks/production/report.json` and `browser-report.json`, with three launcher logs, upload fixtures, screenshots, and traces. `production/read-only-rehearsal/browser-report.json` records the 32-view handoff rehearsal. Verifiers: `/tmp/opencode/signal-atlas-upgrade-production.py`, `signal-atlas-upgrade-production-browser.cjs`, and `signal-atlas-upgrade-final-browser.cjs`.
 - Analyzer-only staging: `/tmp/opencode/signal-atlas-upgrade-checks/staged-analysis/report.json` and four gate logs; source-only index copy: `/tmp/opencode/signal-atlas-staged-analysis-ez6k6zor/`. Verifier: `/tmp/opencode/signal-atlas-verify-staged-analysis.py`.
+- Updated original-app handoff: `/tmp/opencode/signal-atlas-upgrade-checks/handoff/report.json` and `browser-report.json`, with launcher/browser logs, screenshots, and read-only traces. Verifier: `/tmp/opencode/signal-atlas-upgrade-handoff.py`. `original-data-before-delivery.json` records the immediate pre-delivery baseline comparison.
+- Public delivery: `/tmp/opencode/signal-atlas-upgrade-checks/delivery/pre-push-gates.json`, `pre-push-firefox.log`, `public-product-handoff.json`, and `report.json`. The final report verifies public visibility, matching clean local/remote HEAD, the running updated process, served asset bytes, and unchanged original data. Verifier: `/tmp/opencode/signal-atlas-upgrade-delivery.py`.
 
 - Clean installation: `/tmp/opencode/signal-atlas-clean-final-kzqeqiin/`; snapshot metadata: `/tmp/opencode/signal-atlas-clean-final-metadata.json`.
 - Accessibility: `/tmp/opencode/signal-atlas-accessibility/report.json`, `svg-contrast.json`, and `browser-zoom.json`, with screenshots and traces in that directory.

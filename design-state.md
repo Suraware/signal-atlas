@@ -37,8 +37,9 @@ None blocking. Unlimited APIs and internet-scale ingestion are intentionally not
 - Initial-build author self-review findings were reproduced, regression-tested RED→GREEN, and retested. That snapshot had no independent reviewer.
 - Original-workspace handoff: loopback/localhost/LAN health and 14 additional read-only Firefox combinations pass. Existing research data is unchanged; startup only added the expected empty audit-cache table. The LAN launcher was started for use, without installing a service or changing network settings.
 
-## Upgrade verification checkpoint
+## Delivered upgrade verification
 - Final fix-pass gates pass: 104 backend tests, 42 Firefox tests, Ruff, and production build. Full headings and source markup remain readable plain text at 1440px/720px/390px.
 - Twenty-four changed-surface axe scans report zero violations or incomplete rules, including malformed-cache and missing-record feedback. Labelled keyboard search, busy/error announcements, ≥44px submit targets, focus, reduced motion, and native 200% browser zoom pass. No physical-device or assistive-technology user study is claimed.
 - Six larger-file measurements and two real 64 MiB uploads pass; 512-bucket maps fit at desktop/mobile/zoom widths. Two private-backup restarts, 28 production combinations, and a 32-view read-only rehearsal preserve source evidence and test-note revisions.
-- The single fresh-context read-only review and inline fix pass are complete. The original database remains logically unchanged at 2,062 records and 2,189 evidence rows. Separate commits/push and original-app delivery remain pending; the approved graph redesign remains deferred.
+- The single fresh-context read-only review and inline fix pass are complete. Separate analyzer commits `3d819fc`/`464463c` and CVE commit `2c1e877` are pushed to public `main`. The updated original app passes 32 read-only Firefox combinations on localhost and the host LAN origin; full cached headings, focus, raw evidence, and export are verified without public requests.
+- The original database remains logically unchanged at 2,062 records and 2,189 evidence rows across the identity-checked restart and handoff. The current production assets are served with automatic refresh disabled. Delivery evidence is recorded separately from product code; the approved graph redesign remains deferred.

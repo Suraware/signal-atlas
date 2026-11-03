@@ -38,7 +38,7 @@
 - [x] Follow-up RED→GREEN: native named figure semantics and all 512 entropy bars fit at desktop/mobile widths.
 - [x] Run full backend suite, Ruff, frontend build, and Firefox suite; refresh larger-file, accessibility, native zoom, and private-backup production evidence.
 - [x] Finish the combined read-only review and its single inline RED→GREEN fix pass.
-- [ ] Record delivery and push the separate upgrades after final checks.
+- [x] Record delivery and push the separate upgrades after final checks.
 
 ## Execution notes
 - The public baseline was published before the initial analyzer commit `3d819fc`. That snapshot passed 50 backend tests, 19 Firefox tests, build, Ruff, and whitespace checks. Keep it separate from the CVE changes.
@@ -49,3 +49,5 @@
 - Final refresh: 104 backend tests passed in 28.83 seconds; 42 isolated Firefox tests, Ruff, and the TypeScript/Vite build passed. Six disposable-subprocess measurements passed, including a 64 MiB invalid-scope token with a valid trailing IPv6 lead. Twenty-four changed-surface axe scans and native 200% Firefox zoom passed.
 - Private-backup production refresh: both 64 MiB Firefox uploads passed (11.571/11.346 seconds); the scope response retained only the valid tail and was 3,646 bytes. The API rejected 64 MiB + 1 byte with HTTP 413. Twenty-eight production combinations, two restarts, and a separate 32-view GET/HEAD-only rehearsal passed. Fifty-six health probes had no failures. Original table counts and logical SHA-256 remain unchanged; separate commits/push and original-server handoff remain pending.
 - Selective staging proof: a source-only copy of the analyzer-only index passed 72 backend tests, 20 isolated Firefox tests, Ruff, and the TypeScript/Vite build before its commit. Shared CSS/browser files contain only the entropy fixes in this snapshot; CVE adapters/store/search/fixtures match the initial analyzer commit exactly. Existing locked dependencies were reused, and no private data or build output was copied.
+- Delivery complete: initial analyzer `3d819fc` and follow-up `464463c` were pushed separately from CVE commit `2c1e877`, after the public baseline. Fresh pre-push gates passed 104 backend tests, 42 Firefox tests, Ruff, production build, and staged whitespace checks. Public remote/local `main` matched `2c1e877` after the product push.
+- Original-app handoff passed at 21:43 UTC: only the verified old process was stopped gracefully, and the updated launcher serves current assets on localhost and the host LAN origin. Thirty-two GET/HEAD-only Firefox combinations passed with no browser errors, writes, or external requests. Original table counts and complete logical SHA-256 stayed unchanged. Final evidence updates are documentation-only; no graph work was included.
