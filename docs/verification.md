@@ -2,6 +2,82 @@
 
 Verified on **2026-11-03**. These results apply to this session's source snapshot, not to every future change or deployment. The application remains an early, repository-run release for one researcher or a trusted LAN.
 
+## Executable-aware inspection
+
+The additive PE/ELF slice is implemented and all planned implementation gates pass in the working checkout above `1105268`. It has **not been committed, published, or loaded into the original running app**. These results cover the source after its author-review fixes. Earlier release evidence below remains history, not a substitute for these checks.
+
+| Gate | Command or method | Observed result |
+| --- | --- | --- |
+| Complete backend suite | `.venv/bin/python -m pytest -q` | **220 passed**, 57.85 seconds |
+| Complete browser suite | `ATLAS_TEST_FRONTEND_DIR=/tmp/opencode/signal-atlas-executable-checks/dist npm --prefix frontend test -- --output=/tmp/opencode/signal-atlas-executable-checks/browser-final` | **60 isolated Firefox tests passed**, 2.1 minutes; includes 18 executable tests and every prior browser regression |
+| Python static checks | `.venv/bin/ruff check backend tests scripts` | All checks passed |
+| Whitespace and documentation | `git diff --check`, generated new-file checks, and local-link validation | No whitespace errors in tracked changes or seven new files; local documentation links resolve |
+| Isolated production interface | `npm --prefix frontend run build -- --outDir /tmp/opencode/signal-atlas-executable-checks/dist --emptyOutDir` | TypeScript and Vite passed; live `frontend/dist` was not replaced |
+| Selected format comparison | Local compiler artifacts compared with independent `readelf` / `objdump` output | ELF64: **32 named sections, 3 loads, 1 library, 6 symbols**; ELF32 object: **13 sections, 1 symbol**; PE64: **18 section layouts, 2 libraries, 34 symbols** |
+| Changed-surface accessibility | axe-core 4.14.0 and keyboard/reflow assertions in Firefox 157.0 | **36 states** at 1440px/720px/390px; zero violations, incomplete rules, page/console errors, remote requests, or public lookups |
+| Native browser zoom | Firefox 158.0.1 `ZoomManager` at 200% in a disposable WebDriver profile | **11 executable states** passed; viewport **1440px → 720px**, DPR **1 → 2**; no CSS zoom or device emulation |
+| Selected hostile/large-file bounds | Fifteen disposable Python processes, verifier-only 45-second / 768 MiB containment | **15 passed**, including four 64 MiB inputs; configured work/output budgets and full-file generic analysis retained |
+
+A fresh pre-integration repeat on the final source passed **220 backend tests in 63.21 seconds**, **60 Firefox tests in 2.1 minutes**, Ruff, and the isolated TypeScript/Vite rebuild. It produced the same JS/CSS asset names. Final tracked/new-file whitespace checks, **23 local documentation links**, all plan checkboxes, and disposable-server cleanup passed; hashes of the **18 changed source/documentation files** are retained in the temporary report. No product code changed after the earlier post-fix gates. Publication and a live update still need separate authorization.
+
+### Structure, evidence, and regression coverage
+
+- PE32/PE32+ fixtures verify machine/image metadata, section ranges and declared flags, exact entry RVA/address/file mapping, named/ordinal imports, unbound thunk fallback, and rejection of bound IAT guesses. ELF32/ELF64 fixtures cover both byte orders, load mappings, `DT_NEEDED` dependencies, and undefined global/weak symbols with no guessed provider.
+- Truncated headers, out-of-file and overflowing ranges, overlaps, zero-fill, missing terminators, invalid linked tables, NOBITS, extended numbering, sectionless dependencies, and wide integers stay explicit. A printable API/library name outside its table cannot become a structured import. An incomplete or overlapping address table cannot choose an arbitrary unique file offset.
+- Limits are checked independently from output retention: **256 sections; 128 program headers/import descriptors/libraries; 512 retained symbols; 20,000 inspected symbol/thunk records; 4,096 dynamic records; 512-byte terminated names; 64 MiB cumulative section entropy; 50 observations; 64 warnings**. Identical entropy spans are reused; differing overlaps consume the cumulative budget.
+- Five fixture families exercise **2,275 deterministic truncation/mutation cases**, including bounds on actual counters and output, finite JSON values, and in-file evidence offsets. This is a reproducible selected corpus, not exhaustive fuzzing.
+- Addresses/offsets remain hexadecimal strings, while declared sizes/counts and ordinals remain exact decimal strings. The real JSON and browser retain values above JavaScript's integer range. Declaration observations cite their actual header records; entropy observations cite the measured file bytes.
+- The complete suites preserve generic whole-file indicators/entropy/strings, PCAP summaries, dependency consent, CVE cache-first behavior, full headings, note revisions/drafts/delete/restore, and existing graph behavior. Runtime dependencies, upload cap, source adapters, storage, and launcher configuration are unchanged. The graph redesign remains deferred.
+
+### Executable uploads and usability
+
+Three compiler-produced artifacts passed direct multipart API checks. Five fresh-context Firefox uploads passed: the same ELF64 executable, ELF32 relocatable object, and PE64 executable, plus compiler-produced ELF64/PE64 overlays of exactly **67,108,864 bytes**. Uploaded artifacts were never executed.
+
+The browser checks verify SHA-256 fingerprints, oracle entry/import counts, whole-file indicators at **48 MiB and 60 MiB**, a ZIP signature at **41,943,040**, all **512 entropy bars**, original printable previews, keyboard submission/disclosures, named tables, and reflow at **1440px/720px/390px**. The PE's existing **200** ASCII previews remain retained; independently scanned late indicators do not depend on preview space. **64 MiB + 1 byte** returns HTTP **413**.
+
+Accessibility states cover parsed PE/ELF, sectionless, invalid and partial structures, long literal names, exact wide numbers, reached limits, both overflowed PE header classes, and invalid section data offsets. Keyboard submission, native disclosure expansion, labeled table scrolling, warning visibility, and literal markup checks pass. The native-zoom run checks eleven states and fourteen overflowing-table keyboard scrolls. Representative long-name, overflow-warning, exact-value, and header-evidence screenshots were captured and inspected.
+
+The first upload verifier stopped because an ELF entry address and file offset legitimately both equal `0x390`. Scoping the assertion to **File offset** corrected the verifier, not the product. An earlier accessibility verifier similarly needed a library assertion scoped to its named table. Both failures, screenshots, traces, and corrected checks are preserved rather than hidden.
+
+These checks inspect heading/label/table semantics and automated rules. They are not assistive-technology user studies, physical-device tests, or accessibility certification.
+
+### Executable-analysis measurements
+
+The final real-API/browser upload run observed:
+
+| Input or probe | Observed result |
+| --- | ---: |
+| Compiler-produced ELF64 with 64 MiB overlay | 27.315 seconds |
+| Compiler-produced PE64 with 64 MiB overlay | 25.824 seconds |
+| Test server high-water RSS after uploads | 546.7 MiB |
+| Concurrent health probes | 105 succeeded; zero failures |
+| Health latency | Median 0.0036 seconds; maximum 8.2951 seconds |
+
+The post-fix contained-process rerun passed **all fifteen cases**, including four 64 MiB inputs, repeated/overlapping section entropy, oversized PE descriptors/thunks, ELF symbol/dynamic records, wide counts, and malformed sections:
+
+| 64 MiB input | Selected parser time | Complete analysis time | Process peak RSS |
+| --- | ---: | ---: | ---: |
+| Padded PE64 fixture | 0.000 s | 26.789 s | 259.5 MiB |
+| Padded ELF64 fixture | 0.000 s | 29.389 s | 255.0 MiB |
+| High-entropy PE64 fixture | 4.626 s | 35.961 s | 253.5 MiB |
+| Dense UTF-16 PE64 fixture | 0.003 s | 33.598 s | 254.1 MiB |
+
+Across all fifteen cases, selected parser time was **0.000–4.626 seconds**, complete analysis **0.002–35.961 seconds**, peak RSS **19.4–259.5 MiB**, and the largest JSON **102,079 bytes**. Identical 2 MiB section spans were read once; differing overlapping spans stopped at the cumulative **64 MiB** entropy budget. Descriptor/symbol/dynamic work and retained findings/warnings reached their configured caps without exceeding them. Full-file fingerprints, late indicators, ZIP offsets, and 512-bucket entropy maps remained available.
+
+These are local measurements for selected files and this run, **not wall-time, peak-memory, or concurrency guarantees**. The contained-process verifier's separate **45-second / 768 MiB** settings do not apply to the application. Earlier pre-review measurements are preserved separately and are not substituted for the post-fix results.
+
+### Author review and preserved original workspace
+
+This slice received an **author self-review**, not a new independent review or penetration test. The separate fresh-context review of the earlier CVE/analyzer upgrade below does not cover this slice.
+
+Two reproduced Important findings entered one RED→GREEN fix pass: overflowed PE header address ranges could falsely establish a mapping, and declaration observations could cite nonexistent declared data rather than header evidence. The targeted run went from **14 failed / 7 passed in 1.04 seconds** to **21 passed in 0.64 seconds**, with valid address-width boundaries and data-based entropy evidence retained. Complete backend/browser/build gates passed afterward. No additional reproduced blocker or deferred Minor was identified in the author pass; this does not establish that no other defects exist.
+
+All write/upload testing used disposable SQLite storage and isolated production assets. Backend external HTTP was forbidden. There were no browser errors, remote page requests, public lookup calls, or saved application artifacts in the real-upload run; the disposable servers stopped normally.
+
+Every original table count and the complete read-only logical digest matched before and after real uploads and again at **23:43 UTC** after the final browser checks: **2,064 records, 2,191 evidence rows, one soft-deleted note row, zero active notes/watch entries**; SHA-256 `4c7e7e35851ae879d410ba0724eca01845c69f7d1114ea2cce51cc6f83543ada`. The note's saved update is **2026-11-03T22:55:48Z**, revision **1**. That activity and the separately requested **21:45 UTC** cache refresh were preserved, not rolled back to earlier baselines. Every live frontend asset hash matched. Process **104798** on port **8731** was not restarted; automatic refresh remains disabled. The obsolete handoff helper was not executed.
+
+Loader acceptance, disassembly/decompilation, Mach-O/standalone COFF decoding, PE exports/resources/delay imports/signature validation, ELF symbol versions/providers and sectionless-symbol recovery, and malware scoring remain outside this slice. See [executable capabilities and budgets](../README.md#inspect-a-pe-or-elf-file).
+
 ## Combined analyzer and CVE upgrade
 
 The following checks cover delivered product commit `2c1e877`, including dense UTF-16 scanning, complete IPv6 candidates, and cache-first CVE search. Earlier snapshots below are retained as history, not substituted for these gates. The single fresh-context review and its inline fixes are complete. The separate analyzer and CVE commits are public, and the updated original-workspace handoff passed. Delivery documentation is recorded separately from the tested product code.
@@ -187,6 +263,7 @@ No reproduced blocker remains in that reviewed scope. Tests and self-review do n
 
 These local reports, temporary verifier scripts, screenshots, and traces are **not repository deliverables** and may be removed with temporary storage:
 
+- Executable slice: `/tmp/opencode/signal-atlas-executable-checks/` contains its execution ledger, `author-review.md`, RED/GREEN and full-suite/build/oracle logs, hand-built browser fixtures, compiler/binutils artifacts, and the isolated `dist/`. The uploaded compiler artifacts were never executed. `uploads/report.json` and `uploads/browser-report.json` retain real API/Firefox upload and preservation evidence; `accessibility/report.json` and `accessibility/browser-zoom.json` retain the 36-state automated and eleven-state native-zoom checks; `bounds-report.json` retains the fifteen post-fix measurements; `original-final-readonly.json` retains the final live identity/data/asset check; `final-static.json` retains whitespace/Ruff/local-link, complete fresh-suite summaries, source hashes, and test-server-cleanup checks. The fresh integration logs are `integration-backend.txt`, `integration-browser.txt`/`integration-browser/`, and `integration-build.txt`; `integration-git-preflight.json` records the selected public origin, commit identity, and empty index. `final-check.py` is the read-only final verifier. Initial verifier failures, screenshots, and traces remain under their `initial-verifier-failure/` directories. `final-static-verifier-diagnostic.json` records the clean/invalid controls for Git's no-index exit status. `pre-review-measurements/` preserves the earlier 27-state accessibility, eight-state zoom, and fifteen-case bounds artifacts. These temporary files are retained for handoff, not committed or treated as durable public guarantees.
 - Combined upgrade: `/tmp/opencode/signal-atlas-upgrade-checks/large-file-benchmark.json`, `large-file-before.json`, and `large-file-utf16-before.json` preserve the passing measurements and reproduced failures. `original-data-before.json`, `original-data-pre-final-refresh.json`, and `original-data-after-upgrade-tests.json` prove original-data preservation. Earlier JSON reports were copied under `pre-final-refresh-20261103T212201Z` before rerunning the verifiers.
 - Changed surfaces: `/tmp/opencode/signal-atlas-upgrade-checks/accessibility/report.json` and `upgrade-browser-zoom.json`, with screenshots and traces. Verifiers: `signal-atlas-upgrade-a11y.cjs`, `signal-atlas-upgrade-browser-zoom.py`, and `signal-atlas-upgrade-accessibility-run.py` under `/tmp/opencode`.
 - Upgrade production: `/tmp/opencode/signal-atlas-upgrade-checks/production/report.json` and `browser-report.json`, with three launcher logs, upload fixtures, screenshots, and traces. `production/read-only-rehearsal/browser-report.json` records the 32-view handoff rehearsal. Verifiers: `/tmp/opencode/signal-atlas-upgrade-production.py`, `signal-atlas-upgrade-production-browser.cjs`, and `signal-atlas-upgrade-final-browser.cjs`.

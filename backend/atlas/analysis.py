@@ -11,6 +11,7 @@ from itertools import islice
 from pathlib import PurePosixPath
 from urllib.parse import unquote
 
+from .executables import inspect_executable
 from .models import safe_url, unique
 
 MAX_FILE = 64 * 1024 * 1024
@@ -473,4 +474,7 @@ def analyze_file(filename, data):
     }
     if classic_pcap or pcapng:
         result["capture"] = _capture(data, pcapng)
+    executable = inspect_executable(data)
+    if executable is not None:
+        result["executable"] = executable
     return result

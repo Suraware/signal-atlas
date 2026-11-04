@@ -39,6 +39,36 @@ export interface AuditResult {
   results: { ecosystem: string; name: string; version: string; status: string; checked_at: string | null; message?: string; vulnerabilities: { id: string; url: string; modified?: string }[] }[];
   skipped: { name: string; reason: string }[]; warnings: string[]; affected_packages: number; packages_checked: number;
 }
+export type ExecutableLimit = 'sections' | 'program_headers' | 'import_descriptors' | 'libraries' | 'symbols' | 'symbol_records' | 'dynamic_records' | 'name_bytes' | 'entropy_bytes' | 'findings' | 'warnings';
+export interface ExecutableRange {
+  index: number; name: string; header_offset: string; address: string; file_offset: string;
+  file_size: string; memory_size: string; flags: string[]; flags_value: string;
+  status: 'file_backed' | 'zero_fill' | 'invalid_range' | 'empty';
+}
+export interface ExecutableSection extends ExecutableRange { rva: string | null; type: string; entropy: number | null }
+export interface ExecutableReport {
+  format: 'PE' | 'ELF'; status: 'parsed' | 'partial' | 'invalid'; architecture: string;
+  bitness: 32 | 64 | null; byte_order: 'little' | 'big' | null; kind: string;
+  // Declared binary integers remain strings: malformed 64-bit values can exceed Number.MAX_SAFE_INTEGER.
+  sections_declared: string; program_headers_declared: string;
+  entry_point: {
+    address: string | null; rva: string | null; offset: string | null; region: string | null;
+    mapping: 'file_backed' | 'zero_fill' | 'ambiguous' | 'unmapped' | 'not_declared' | 'unavailable';
+  };
+  sections: ExecutableSection[]; load_segments: ExecutableRange[];
+  imports: {
+    status: 'parsed' | 'partial' | 'not_present' | 'unavailable'; note: string;
+    libraries: { name: string; offset: string; record_offset: string }[];
+    symbols: { name: string | null; ordinal: string | null; library: string | null; offset: string; name_offset: string | null; binding: string | null }[];
+  };
+  findings: { code: string; label: string; detail: string; offset: string | null }[];
+  warnings: string[];
+  limits: Record<ExecutableLimit, number> & { reached: ExecutableLimit[] };
+  coverage: {
+    sections_read: number; program_headers_read: number; import_descriptors_read: number;
+    symbol_records_read: number; dynamic_records_read: number; entropy_bytes_read: number;
+  };
+}
 export interface Analysis {
   filename: string; size: number; file_type: string; entropy: number; sha256: string; sha1: string; md5: string;
   strings: string[]; strings_utf16: string[]; sampled_bytes: number;
@@ -47,5 +77,6 @@ export interface Analysis {
   signals: { label: string; reason: string; line: number; match: string }[];
   segments: { type: string; offset: number }[];
   entropyMap: { block: number; count: number; values: number[]; highRegions: { start: number; end: number; blockCount: number }[] };
+  executable?: ExecutableReport;
   capture?: { format: string; packet_count: number; captured_bytes: number; truncated: boolean; link_type?: number; warnings: string[]; protocols: { name: string; count: number }[]; conversations: { source: string; destination: string; protocol: string; packets: number; bytes: number }[] };
 }

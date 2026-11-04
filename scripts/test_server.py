@@ -1,5 +1,6 @@
 """Isolated integration server: real SQLite/API, fixed external HTTP fixtures."""
 
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -79,7 +80,8 @@ def external_fixture(request):
 
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="signal-atlas-test-", dir="/tmp/opencode") as directory:
-        app = create_app(directory, transport=httpx.MockTransport(external_fixture), frontend_dir=ROOT / "frontend" / "dist")
+        frontend = os.environ.get("ATLAS_TEST_FRONTEND_DIR") or ROOT / "frontend" / "dist"
+        app = create_app(directory, transport=httpx.MockTransport(external_fixture), frontend_dir=frontend)
         app.state.store.upsert_record({
             "id": "CVE-2024-3094", "title": "XZ Utils supply-chain compromise", "description": "Controlled integration fixture for an xz supply-chain investigation.",
             "severity": "CRITICAL", "cvss": 10, "epss": 0.909, "epss_date": "2026-11-03", "kev": True,

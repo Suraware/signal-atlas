@@ -4,6 +4,7 @@ import json
 import httpx
 import pytest
 from atlas.app import create_app
+from executable_fixtures import elf_fixture, pe_import_fixture
 from fastapi.testclient import TestClient
 
 
@@ -81,6 +82,24 @@ def test_file_analysis_has_upload_caps_and_does_not_save_artifacts(client):
     response = client.post("/api/analyze", files={"file": ("large", b"x" * (MAX_FILE + 1))})
     assert response.status_code == 413
     assert client.post("/api/notes", content=b"x" * (MAX_BODY + 1), headers={"content-type": "application/json"}).status_code == 413
+
+
+@pytest.mark.parametrize(("data", "format", "status"), [
+    (bytes(pe_import_fixture()), "PE", "parsed"),
+    (bytes(elf_fixture()), "ELF", "parsed"),
+    (b"MZ", "PE", "invalid"),
+    (b"\x7fELF", "ELF", "invalid"),
+])
+def test_executable_upload_returns_structured_or_invalid_evidence_without_network_or_saved_artifact(client, tmp_path, data, format, status):
+    response = client.post("/api/analyze", files={"file": ("must-not-execute.exe", data, "application/octet-stream")})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["execution"] == "never"
+    assert result["executable"]["format"] == format
+    assert result["executable"]["status"] == status
+    assert result["sampled_bytes"] == len(data)
+    assert not (tmp_path / "must-not-execute.exe").exists()
+    assert client.get("/api/notes").json() == []
 
 
 def test_dependency_audit_requires_consent_and_reuses_cached_results_offline(tmp_path):

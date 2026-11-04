@@ -13,6 +13,7 @@ A local-first workspace for security research. Public vulnerability intelligence
 - Browse documented relationships as a diagram and an accessible table.
 - Audit up to 100 exact package versions from npm files, Python requirements, or a CycloneDX JSON SBOM. Remote OSV queries require explicit consent; previous queries can be read offline.
 - Inspect files up to 64 MiB: headers, hashes, whole-file entropy map, printable ASCII and UTF-16 strings, embedded file-signature discovery, network indicators, heuristic source-code leads, and bounded PCAP/PCAPNG summaries. **Nothing is executed.**
+- Explain Windows PE and Linux ELF sections, entry-point mappings, declared flags, and selected imports with exact evidence offsets. Partial or invalid structures remain explicit; imported symbols are not guessed from printable strings.
 - Export source-linked intelligence and notes as JSON or Markdown for offline review or an agent's context.
 
 Eight sources are an initial integration set, **not all free APIs**. Each has a bounded ingestion strategy. A missing CVSS score remains unknown; KEV evidence, public PoC metadata, EPSS probability, and a researcher's assessment are separate signals. None establishes that your system is affected.
@@ -22,6 +23,31 @@ Eight sources are an initial integration set, **not all free APIs**. Each has a 
 Enter a complete identifier, such as `CVE-2014-0160`, in **Search intelligence** and submit. A valid cached record opens without public requests. Only a local HTTP 404 permits the existing bounded public lookup, which saves any returned evidence locally. Source failures are reported. Failed reads and malformed successful cache responses never start a public request.
 
 Typing, partial identifiers, and product/package searches stay local. Complete headings are preserved up to 50,000 characters. Older clipped headings are extended only when matching saved source evidence agrees on the missing text. Ambiguous headings stay unchanged; reading them does not rewrite the database.
+
+### Inspect a PE or ELF file
+
+In **Analysis lab**, choose a file under **File to inspect**, then select **Inspect file**. PE/ELF signatures add an **Executable structure** report before the generic strings and heuristic leads. The file stays local and is never executed.
+
+- **PE32 / PE32+:** architecture, image kind, section file/memory ranges, declared read/write/execute flags, bounded section entropy, entry-point RVA/address, and normal named or ordinal imports. An ordinal stays an ordinal; no function name is invented.
+- **ELF32 / ELF64, either byte order:** architecture/type, sections, load segments, entry-point address, `DT_NEEDED` libraries, and undefined global/weak symbols. Relocatable ELF objects use their regular symbol table. Dependencies are kept separate from unresolved symbol providers.
+- File offsets and virtual addresses remain exact hexadecimal values. Declared sizes/counts stay exact even above JavaScript's integer range. A virtual-only, ambiguous, invalid, or incompletely mapped address has no proven file offset.
+- **Parsed selected structures**, **Partial structure**, and **Invalid structure** describe decoding coverage, not safety or operating-system loader acceptance. Empty imports are not proof that dependencies are absent. An ELF without section headers can retain load/dependency evidence while explaining unavailable symbol decoding.
+- Expand **Imported symbols** and **Parser limits and coverage** for record offsets and actual work counts. Tables have captions and keyboard-scrollable regions; names remain literal text, not links or HTML.
+
+| Selected parser budget | Maximum per file |
+| --- | ---: |
+| Section headers | 256 |
+| Program headers, PE import descriptors, retained library records | 128 each |
+| Retained imported/undefined symbols | 512 |
+| Inspected symbol/thunk records | 20,000 |
+| Inspected ELF dynamic records | 4,096 |
+| Terminated names | 512 bytes, including the terminator |
+| Cumulative section-entropy reads | 64 MiB; identical spans reused |
+| Retained structural observations / decoding warnings | 50 / 64 |
+
+Reached budgets and undecoded tables are reported visibly. Oversized or unterminated names are rejected rather than truncated into imports. These limits bound selected work and output, not request time or peak memory.
+
+This report does not disassemble or decompile code. Mach-O and standalone COFF objects, PE exports/resources/delay imports/signature validation, ELF symbol versions/provider resolution, and sectionless dynamic-symbol recovery are not decoded. Existing generic analysis remains available.
 
 ## Quick start
 
@@ -73,7 +99,7 @@ Optional settings:
 - Strings, indicators, and the entropy map scan the whole file. Results retain up to 200 strings per encoding (240-character previews), 100 indicators per family, 512 entropy buckets, and 20 high-entropy regions. Heuristic rules read the first 16 MiB and the final 1 MiB, and a warning names any skipped middle range.
 - IPv6 leads are validated as complete candidates, not fragments of malformed addresses. Scope identifiers are limited to 64 characters. UTF-16 indicator scans include short runs independently of the six-character string-preview minimum.
 - Captures are limited to 20,000 packets and 100 displayed directional conversations. At most 100 embedded file signatures are shown; closely spaced repetitions of the same signature are skipped. Signatures are never extracted or opened. No live capture, stream reassembly, packet payload interpretation, or decryption is performed.
-- Larger inspections take seconds and use additional memory. The 64 MiB file limit is not a processing-time or memory guarantee, especially with concurrent uploads. See the [measured larger-file checks](docs/verification.md#larger-file-measurements).
+- Larger inspections take seconds and use additional memory. The 64 MiB file limit is not a processing-time or memory guarantee, especially with concurrent uploads. See the [executable-analysis measurements](docs/verification.md#executable-analysis-measurements) and [earlier generic-analysis measurements](docs/verification.md#larger-file-measurements).
 - JSON exports include original source evidence; Markdown is a readable summary. Whole-workspace exports contain at most 10,000 vulnerabilities and all active notes. Exports do not include the OSV query cache or deleted notes and are not full database backups.
 
 ## Local data and backups
@@ -96,6 +122,8 @@ npm --prefix frontend test
 ```
 
 Firefox tests use fresh browser contexts and a real, isolated SQLite/API server on port `8732`. External HTTP is replaced with controlled fixtures; the suite does not contact public intelligence services or touch `data/`. Screenshots and traces are saved to `test-results/` on failure. Build before testing because these checks exercise production assets.
+
+To test a different build without replacing a running app's `frontend/dist`, build with `npm --prefix frontend run build -- --outDir /absolute/path/to/test-dist`, then run `ATLAS_TEST_FRONTEND_DIR=/absolute/path/to/test-dist npm --prefix frontend test`. The override affects only the test server; the normal launcher still serves `frontend/dist`.
 
 For hot reload, run the backend on its default loopback port in one terminal and `npm --prefix frontend run dev` in another. The Vite proxy forwards local API requests; use the production launcher for LAN verification. The API schema is available at `/api/openapi.json` without remote Swagger assets.
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FileSearch, PackageSearch, ShieldCheck } from 'lucide-react';
 import { request, send } from '../api';
 import { date, Failure, number, PageHeading, Panel, SafeLink } from '../common';
-import type { Analysis, AuditResult } from '../types';
+import type { Analysis, AuditResult, ExecutableLimit, ExecutableReport as ExecutableAnalysis } from '../types';
 
 const auditStatuses: Record<string, string> = { ok: 'Fetched', cached: 'Cached', not_cached: 'Not checked', error: 'Query failed' };
 
@@ -48,9 +48,9 @@ export function LabPage() {
       </Panel>
       <Panel title="Artifact inspection" extra={<FileSearch size={20} aria-hidden="true" />}>
         <form className="panel-body" onSubmit={event => { event.preventDefault(); void inspectFile(); }}>
-          <p>Inspect binary headers, hashes, printable strings, and source-code signals. PCAP and PCAPNG files also produce packet and conversation summaries.</p>
+          <p>Inspect PE/ELF sections, entry points, and imports alongside hashes, strings, and source-code signals. PCAP and PCAPNG files also produce packet and conversation summaries.</p>
           <div className="field file-field"><label htmlFor="artifact-file">File to inspect</label><input id="artifact-file" type="file" onChange={event => setFile(event.target.files?.[0] || null)} aria-describedby="artifact-hint" /><p id="artifact-hint" className="field-hint">Up to 64 MiB. No execution, decompression, decryption, or external reputation lookup.</p></div>
-          <ul className="inspection-boundaries"><li>Hashes and entropy cover the full file.</li><li>Strings, indicators, and the entropy map cover every byte.</li><li>Heuristic rules read the first 16 MiB and the final 1 MiB.</li><li>Capture decoding stops at 20,000 packets.</li><li>Indicators are research leads, not a malware verdict.</li></ul>
+          <ul className="inspection-boundaries"><li>Hashes and entropy cover the full file.</li><li>Strings, indicators, and the entropy map cover every byte.</li><li>Heuristic rules read the first 16 MiB and the final 1 MiB.</li><li>Executable tables have separate work limits; partial results explain what was not decoded.</li><li>Capture decoding stops at 20,000 packets.</li><li>Indicators are research leads, not a malware verdict.</li></ul>
           <button className="button primary" type="submit" disabled={inspecting || !file}><FileSearch size={16} aria-hidden="true" />{inspecting ? 'Inspecting bytes…' : 'Inspect file'}</button>
         </form>
         {fileError ? <Failure message={fileError} /> : null}
@@ -71,6 +71,7 @@ function ArtifactReport({ analysis }: { analysis: Analysis }) {
   return <Panel title={`Inspection: ${analysis.filename}`} className="lab-report" extra={<span className="badge note-verified"><ShieldCheck size={14} aria-hidden="true" />No code executed</span>}>
     <dl className="artifact-metrics"><div><dt>Header / type</dt><dd>{analysis.file_type}</dd></div><div><dt>File size</dt><dd>{number(analysis.size)} bytes</dd></div><div><dt>Shannon entropy</dt><dd>{analysis.entropy.toFixed(3)} / 8</dd></div><div><dt>Coverage</dt><dd>Whole file scanned ({number(analysis.sampled_bytes)} bytes)</dd></div></dl>
     <WarningList warnings={analysis.warnings} />
+    {analysis.executable ? <ExecutableReport executable={analysis.executable} /> : null}
     <EntropyMap entropyMap={analysis.entropyMap} />
     <div className="panel-body"><h3>File fingerprints</h3><dl className="hashes">{(['sha256', 'sha1', 'md5'] as const).map(key => <div key={key}><dt>{key.toUpperCase()}</dt><dd><code>{analysis[key]}</code></dd></div>)}</dl><p className="field-hint">SHA-1 and MD5 are provided for correlation only, not security guarantees.</p>
       {analysis.signals.length ? <><h3>Static review leads</h3><ul className="signal-list">{analysis.signals.map(signal => <li key={signal.label}><strong>{signal.label}</strong><span>Approximate line {signal.line} · <code>{signal.match}</code></span><p>{signal.reason}</p></li>)}</ul></> : <p className="muted">No configured heuristic matched the sampled bytes. This is not a clean bill of health.</p>}
@@ -81,6 +82,118 @@ function ArtifactReport({ analysis }: { analysis: Analysis }) {
       <h3>UTF-16 strings</h3><details className="report-details"><summary>UTF-16 strings found ({analysis.strings_utf16.length})</summary><pre className="raw-record">{analysis.strings_utf16.join('\n') || 'No UTF-16 strings in the scanned file.'}</pre></details>
     </div>
   </Panel>;
+}
+
+const structureStatuses: Record<ExecutableAnalysis['status'], string> = { parsed: 'Parsed selected structures', partial: 'Partial structure', invalid: 'Invalid structure' };
+const mappingStatuses: Record<ExecutableAnalysis['entry_point']['mapping'], string> = {
+  file_backed: 'File-backed bytes', zero_fill: 'Zero-filled memory only', ambiguous: 'Ambiguous mapping',
+  unmapped: 'Unmapped address', not_declared: 'No entry point declared', unavailable: 'Mapping unavailable',
+};
+const rangeStatuses: Record<ExecutableAnalysis['sections'][number]['status'], string> = { file_backed: 'File-backed range', zero_fill: 'Zero-filled memory', invalid_range: 'Invalid range', empty: 'Empty range' };
+const importStatuses: Record<ExecutableAnalysis['imports']['status'], string> = { parsed: 'Selected import tables parsed', partial: 'Partial import decoding', not_present: 'No selected import table present', unavailable: 'Import decoding unavailable' };
+const limitLabels: Record<ExecutableLimit, string> = {
+  sections: 'Section headers', program_headers: 'Program headers', import_descriptors: 'PE import descriptors',
+  libraries: 'Library records', symbols: 'Imported symbols retained', symbol_records: 'Symbol / thunk records',
+  dynamic_records: 'ELF dynamic records', name_bytes: 'Terminated name bytes', entropy_bytes: 'Section-entropy bytes',
+  findings: 'Structural observations', warnings: 'Decoding warnings',
+};
+
+function exactNumber(value: string): string { return value.replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function ExactAddress({ value, fallback = 'Not decoded' }: { value: string | null; fallback?: string }) { return value !== null ? <code>{value}</code> : <span className="muted">{fallback}</span>; }
+
+function ExecutableReport({ executable }: { executable: ExecutableAnalysis }) {
+  const { entry_point: entry, sections, imports, findings, warnings, limits, coverage } = executable;
+  const work: [ExecutableLimit, number][] = [
+    ['sections', coverage.sections_read], ['program_headers', coverage.program_headers_read],
+    ['import_descriptors', coverage.import_descriptors_read], ['libraries', imports.libraries.length],
+    ['symbols', imports.symbols.length], ['symbol_records', coverage.symbol_records_read],
+    ['dynamic_records', coverage.dynamic_records_read], ['entropy_bytes', coverage.entropy_bytes_read],
+    ['findings', findings.length], ['warnings', warnings.length],
+  ];
+  return <section className="executable-report" aria-label="Executable structure">
+    <div className="executable-heading"><h3>Executable structure</h3><span className={`badge executable-${executable.status}`}>{structureStatuses[executable.status]}</span></div>
+    <p className="field-hint">Selected headers and declarations only. Parsing does not prove that an operating system can load this file or that it is safe.</p>
+    <dl className="executable-metadata">
+      <div><dt>Format</dt><dd>{executable.format}</dd></div>
+      <div><dt>Architecture</dt><dd>{executable.architecture}{executable.bitness !== null ? ` · ${executable.bitness}-bit` : ''}</dd></div>
+      <div><dt>Byte order</dt><dd>{executable.byte_order ? `${executable.byte_order}-endian` : 'Not decoded'}</dd></div>
+      <div><dt>Image type</dt><dd>{executable.kind}</dd></div>
+      <div><dt>Section headers</dt><dd>{number(coverage.sections_read)} read / {exactNumber(executable.sections_declared)} declared</dd></div>
+      {executable.format === 'ELF' ? <div><dt>Program headers</dt><dd>{number(coverage.program_headers_read)} read / {exactNumber(executable.program_headers_declared)} declared</dd></div> : null}
+    </dl>
+    {warnings.length ? <section aria-label="Decoding warnings"><h4>Decoding warnings</h4><WarningList warnings={warnings} /></section> : null}
+    {limits.reached.length ? <p className="executable-limit-notice"><strong>Reached parser limits:</strong> {limits.reached.map(key => limitLabels[key]).join(', ')}. Decoded lists may be incomplete.</p> : null}
+    <section className="executable-entry" aria-label="Entry point">
+      <h4>Entry point</h4><p className="field-hint">Mapping: <strong>{mappingStatuses[entry.mapping]}</strong></p>
+      <dl className="executable-metadata">
+        <div><dt>Declared address</dt><dd><ExactAddress value={entry.address} fallback={entry.mapping === 'not_declared' ? 'Not declared' : 'Not decoded'} /></dd></div>
+        {executable.format === 'PE' ? <div><dt>Relative virtual address (RVA)</dt><dd><ExactAddress value={entry.rva} /></dd></div> : null}
+        <div><dt>File offset</dt><dd><ExactAddress value={entry.offset} fallback="No proven file offset" /></dd></div>
+        <div><dt>Declared region</dt><dd>{entry.region ? <code>{entry.region}</code> : 'Not mapped'}</dd></div>
+      </dl>
+    </section>
+    <section aria-label="Sections">
+      <h4>Sections</h4><p className="field-hint">Offsets locate file bytes; addresses describe virtual memory. Flags are declarations, not runtime permissions. Entropy is measured only for bounded file-backed bytes.</p>
+      {sections.length ? <div className="table-scroll executable-scroll" role="region" aria-label="Executable sections" tabIndex={0}>
+        <table className="executable-table executable-sections"><caption>Declared sections ({number(sections.length)} read / {exactNumber(executable.sections_declared)} declared)</caption>
+          <thead><tr><th scope="col">Section / type</th><th scope="col">Declared address</th><th scope="col">File range</th><th scope="col">Memory size</th><th scope="col">Declared flags</th><th scope="col">Entropy</th><th scope="col">Range state</th><th scope="col">Header offset</th></tr></thead>
+          <tbody>{sections.map(section => <tr key={section.index}>
+            <th scope="row"><code>{section.name}</code><small>#{section.index} · {section.type}</small></th>
+            <td><ExactAddress value={section.address} />{section.rva !== null ? <small>RVA <code>{section.rva}</code></small> : null}</td>
+            <td><ExactAddress value={section.file_offset} /><small>{exactNumber(section.file_size)} bytes</small></td>
+            <td>{exactNumber(section.memory_size)} bytes</td>
+            <td>{section.flags.join(', ') || 'No decoded flags'}<small><code>{section.flags_value}</code></small></td>
+            <td>{section.entropy !== null ? `${section.entropy.toFixed(3)} / 8` : 'Not measured'}</td>
+            <td>{rangeStatuses[section.status]}</td><td><ExactAddress value={section.header_offset} /></td>
+          </tr>)}</tbody>
+        </table>
+      </div> : <p className="muted">No section headers decoded. See the report state and warnings for absent or unavailable tables.</p>}
+    </section>
+    {executable.format === 'ELF' ? <section aria-label="Load segments">
+      <h4>Load segments</h4>
+      {executable.load_segments.length ? <div className="table-scroll executable-scroll" role="region" aria-label="Executable load segments" tabIndex={0}>
+        <table className="executable-table executable-loads"><caption>Declared load segments</caption>
+          <thead><tr><th scope="col">Segment / header offset</th><th scope="col">Declared address</th><th scope="col">File range</th><th scope="col">Memory size</th><th scope="col">Declared flags</th><th scope="col">Range state</th></tr></thead>
+          <tbody>{executable.load_segments.map(segment => <tr key={segment.index}>
+            <th scope="row">{segment.name}<small>Header <code>{segment.header_offset}</code></small></th>
+            <td><ExactAddress value={segment.address} /></td><td><ExactAddress value={segment.file_offset} /><small>{exactNumber(segment.file_size)} bytes</small></td>
+            <td>{exactNumber(segment.memory_size)} bytes</td><td>{segment.flags.join(', ') || 'No decoded flags'}<small><code>{segment.flags_value}</code></small></td>
+            <td>{rangeStatuses[segment.status]}</td>
+          </tr>)}</tbody>
+        </table>
+      </div> : <p className="muted">No load segments decoded.</p>}
+    </section> : null}
+    <section aria-label="Import coverage"><h4>Import coverage</h4><p><strong>{importStatuses[imports.status]}</strong></p><p className="field-hint">{imports.note}</p></section>
+    <section aria-label="Imported libraries"><h4>Imported libraries</h4>
+      <p className="field-hint">{executable.format === 'ELF' ? 'DT_NEEDED dependency names do not identify the provider of each undefined symbol.' : 'Library names come from normal import descriptors, not printable-string matches.'}</p>
+      {imports.libraries.length ? <div className="table-scroll executable-scroll" role="region" aria-label="Executable library records" tabIndex={0}>
+        <table className="executable-table executable-libraries"><caption>Decoded library records</caption>
+          <thead><tr><th scope="col">Library name</th><th scope="col">Name file offset</th><th scope="col">Record file offset</th></tr></thead>
+          <tbody>{imports.libraries.map((library, index) => <tr key={`${library.record_offset}-${index}`}><th scope="row"><code>{library.name}</code></th><td><ExactAddress value={library.offset} /></td><td><ExactAddress value={library.record_offset} /></td></tr>)}</tbody>
+        </table>
+      </div> : <p className="muted">No library records decoded. This is not proof that the file has no dependencies.</p>}
+    </section>
+    <section aria-label="Imported symbols"><h4>Imported symbols</h4>
+      {imports.symbols.length ? <details className="executable-details"><summary>Imported symbols ({number(imports.symbols.length)})</summary>
+        <div className="table-scroll executable-scroll" role="region" aria-label="Executable symbol records" tabIndex={0}>
+          <table className="executable-table executable-symbols"><caption>Decoded imported or undefined symbols</caption>
+            <thead><tr><th scope="col">Name / ordinal</th><th scope="col">Library / provider</th><th scope="col">Binding</th><th scope="col">Record file offset</th><th scope="col">Name file offset</th></tr></thead>
+            <tbody>{imports.symbols.map((symbol, index) => <tr key={`${symbol.offset}-${index}`}>
+              <th scope="row">{symbol.name !== null ? <code>{symbol.name}</code> : symbol.ordinal !== null ? `Ordinal ${exactNumber(symbol.ordinal)}` : 'Name unavailable'}</th>
+              <td>{symbol.library !== null ? <code>{symbol.library}</code> : 'Provider not resolved'}</td><td>{symbol.binding || 'Not applicable'}</td>
+              <td><ExactAddress value={symbol.offset} /></td><td><ExactAddress value={symbol.name_offset} fallback={symbol.ordinal !== null ? 'Ordinal only' : 'Not decoded'} /></td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </details> : <p className="muted">No symbol records decoded. Read the import coverage and warnings before interpreting an empty list.</p>}
+    </section>
+    {findings.length ? <section aria-label="Structural observations"><h4>Structural observations</h4><p className="field-hint">These are static observations, not a malware score.</p><ul className="executable-findings">{findings.map((finding, index) => <li key={`${finding.code}-${index}`}><strong>{finding.label}</strong><p>{finding.detail}</p>{finding.offset !== null ? <small>Evidence at file offset <code>{finding.offset}</code></small> : null}</li>)}</ul></section> : null}
+    <details className="executable-details"><summary>Parser limits and coverage</summary>
+      <p className="field-hint">Actual work or retained output / configured maximum. These budgets bound selected parser work, not total request time or memory.</p>
+      <dl className="executable-metadata executable-work">{work.map(([key, used]) => <div key={key}><dt>{limitLabels[key]}</dt><dd>{number(used)} / {number(limits[key])}{key === 'entropy_bytes' ? ' bytes' : ''}</dd></div>)}<div><dt>{limitLabels.name_bytes}</dt><dd>{number(limits.name_bytes)} bytes per name, including its terminator</dd></div></dl>
+      <p className="field-hint">Identical section-entropy spans are reused. Oversized or unterminated names are rejected, not truncated into imports.</p>
+    </details>
+  </section>;
 }
 
 function EntropyMap({ entropyMap }: { entropyMap: { block: number; count: number; values: number[]; highRegions: { start: number; end: number; blockCount: number }[] } }) {
